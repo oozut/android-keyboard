@@ -33,6 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
@@ -76,6 +77,9 @@ import org.futo.inputmethod.updates.openURI
 import org.futo.voiceinput.shared.BUILTIN_ENGLISH_MODEL
 import org.futo.voiceinput.shared.types.ModelFileFile
 import org.futo.voiceinput.shared.types.ModelLoader
+import org.futo.voiceinput.shared.types.ModelQnnFileFile
+import org.futo.voiceinput.shared.types.ModelQnnZip
+import android.widget.Toast
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStream
@@ -116,6 +120,12 @@ fun FileKind.namePreferenceKeyFor(locale: String): Preferences.Key<String> {
     assert(this != FileKind.Invalid)
     val locale = locale.replace("#", "H")
     return stringPreferencesKey("resourcename_${name}_${locale}")
+}
+
+fun FileKind.gpuPreferenceKeyFor(locale: String): Preferences.Key<Boolean> {
+    assert(this != FileKind.Invalid)
+    val locale = locale.replace("#", "H")
+    return booleanPreferencesKey("resource_${name}_gpu_${locale}")
 }
 
 @Composable
@@ -244,6 +254,8 @@ fun ImportScreen(fileKind: FileKindAndInfo, onApply: (FileKindAndInfo, InputMeth
 
 enum class FileKind {
     VoiceInput,
+    VoiceInputQnn,
+    VoiceInputQnnZip,
     Transformer,
     Dictionary,
     Invalid;
@@ -251,6 +263,8 @@ enum class FileKind {
     fun getAddonUrlForLocale(locale: Locale?): String {
         return when(this) {
             VoiceInput -> "https://keyboard.futo.tech/voice-input-models?locale=${locale?.toLanguageTag() ?: ""}"
+            VoiceInputQnn -> "https://keyboard.futo.tech/voice-input-models?locale=${locale?.toLanguageTag() ?: ""}"
+            VoiceInputQnnZip -> "https://keyboard.futo.tech/voice-input-models?locale=${locale?.toLanguageTag() ?: ""}"
             Transformer -> "https://keyboard.futo.tech/models?locale=${locale?.toLanguageTag() ?: ""}"
             Dictionary -> "https://keyboard.futo.tech/dictionaries?locale=${locale?.toLanguageTag() ?: ""}"
             Invalid -> "https://keyboard.futo.tech/"
@@ -261,6 +275,8 @@ enum class FileKind {
 fun FileKind.kindTitle(resources: Resources): String {
     return resources.getString(when(this) {
         FileKind.VoiceInput -> R.string.file_kind_voice_input_model
+        FileKind.VoiceInputQnn -> R.string.file_kind_voice_input_qnn_model
+        FileKind.VoiceInputQnnZip -> R.string.file_kind_voice_input_qnn_zip_model
         FileKind.Transformer -> R.string.file_kind_transformer_model
         FileKind.Dictionary -> R.string.file_kind_dictionary
         FileKind.Invalid -> R.string.file_kind_invalid_file
@@ -270,6 +286,8 @@ fun FileKind.kindTitle(resources: Resources): String {
 fun FileKind.icon(): Int {
     return when(this) {
         FileKind.VoiceInput -> R.drawable.mic
+        FileKind.VoiceInputQnn -> R.drawable.mic
+        FileKind.VoiceInputQnnZip -> R.drawable.mic
         FileKind.Transformer -> R.drawable.cpu
         FileKind.Dictionary -> R.drawable.book
         FileKind.Invalid -> R.drawable.close
@@ -279,6 +297,8 @@ fun FileKind.icon(): Int {
 fun FileKind.extension(): String {
     return when(this) {
         FileKind.VoiceInput -> ".bin"
+        FileKind.VoiceInputQnn -> ".qnn.bin"
+        FileKind.VoiceInputQnnZip -> ".qnn.zip"
         FileKind.Transformer -> ".gguf"
         FileKind.Dictionary -> ".dict"
         FileKind.Invalid -> ""
@@ -496,6 +516,8 @@ internal fun detectJapaneseUserDict(inputStream: InputStream): DetectedUserDictF
 }
 
 fun determineFileKind(inputStream: InputStream): FileKindAndInfo {
+    // Only read the 4-byte magic up front, so that downstream metadata parsers
+    // (dictionary) still see the stream positioned right after the magic.
     val array = ByteArray(4)
     inputStream.read(array)
 
@@ -530,9 +552,166 @@ fun determineFileKind(inputStream: InputStream): FileKindAndInfo {
         (magic == 0x1f8b0808.toUInt()) || (magic == 0x1f8b0800.toUInt()) || (magic == 0x64696374.toUInt()) ->
             FileKindAndInfo(FileKind.Invalid, null, null, invalidKindHint = InvalidFileHint.ImportedWordListInsteadOfDict)
 
+        // No known 4-byte magic — QNN context binaries need a longer header
+        // scan (container version + embedded SDK build-id), so only do that in
+        // the fallback path where no downstream parser depends on the stream.
+        magic == 0x504b0304.toUInt() ->
+            // A ZIP: treat it as a QNN model container only if it holds
+            // encoder.bin/decoder.bin somewhere inside (the AI Hub archive
+            // nests them under a top-level directory).
+            if (isQnnZip(inputStream)) FileKindAndInfo(FileKind.VoiceInputQnnZip, null, null)
+            else FileKindAndInfo(FileKind.Invalid, null, null)
+
+        isQnnContextBinary(inputStream, array) -> FileKindAndInfo(FileKind.VoiceInputQnn, null, null)
+
         else -> FileKindAndInfo(FileKind.Invalid, null, null)
     }
 }
+
+/**
+ * Read up to [maxBytes] bytes from [inputStream] into a buffer (without
+ * closing the stream), returning the bytes actually read.
+ */
+private fun readHeader(inputStream: InputStream, maxBytes: Int): ByteArray {
+    val buf = ByteArray(maxBytes)
+    var total = 0
+    while (total < maxBytes) {
+        val n = inputStream.read(buf, total, maxBytes - total)
+        if (n < 0) break
+        total += n
+    }
+    return if (total == maxBytes) buf else buf.copyOf(total)
+}
+
+/**
+ * Detect a QNN (Qualcomm) HTP context binary.
+ *
+ * The HTP "pickle" magics `Hdr_MAGIC` (0x7309F72B) and `Hdr_MAGIC_MULTI`
+ * (0x3790FA5C) do NOT sit at offset 0 — they appear ~400 KB into the file.
+ * Instead, every serialized QNN context binary begins with a big-endian
+ * container header whose first two words are the container format version
+ * (2, 3 as of QNN SDK 2.45), and embeds the producing SDK's build-id string
+ * (e.g. "v2.45.0.260326154327") within the first few KB. See
+ * GPU_QNN_INTEGRATION.md.
+ *
+ * [first4] is the already-read 4-byte magic; the remaining header is read from
+ * [inputStream] (which must still be positioned immediately after it).
+ */
+private fun isQnnContextBinary(inputStream: InputStream, first4: ByteArray): Boolean {
+    // Container format version: major == 2 (big-endian first word).
+    if (first4.size < 4 || ByteBuffer.wrap(first4).getInt(0) != 0x00000002) return false
+
+    // Read enough of the header to find the embedded SDK build-id string,
+    // which is not at a fixed offset (encoder ~1852, decoder ~4492 in the
+    // verified AI Hub binaries) — 64 KB is comfortably beyond it.
+    val rest = readHeader(inputStream, 65536 - 4)
+    // Container format version: minor == 3 (big-endian second word).
+    if (rest.size < 4 || ByteBuffer.wrap(rest).getInt(0) != 0x00000003) return false
+
+    // Secondary signal: embedded "v<digit>.<digit>..." build-id string.
+    for (i in 0 until rest.size - 3) {
+        if (rest[i].toInt() == 'v'.code) {
+            val d = rest[i + 1].toInt()
+            if (d in '0'.code..'9'.code && rest[i + 2].toInt() == '.'.code) {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+/**
+ * Detect a QNN model ZIP container. The AI Hub `precompiled_qnn_onnx` download
+ * is a ZIP holding `encoder.onnx` + `decoder.onnx` (tiny graph stubs) and
+ * their sibling `encoder_qairt_context.bin` + `decoder_qairt_context.bin`
+ * context binaries, all nested under a top-level directory — so the *first*
+ * entry is a directory, not a model part. We scan local file headers for any
+ * entry whose base name is `encoder.onnx` or `decoder.onnx` (case-insensitive).
+ * Entry names live in the local header *before* the entry data, so this only
+ * skips compressed bytes between entries (a cheap seek on file-backed streams,
+ * not a decompression).
+ *
+ * [inputStream] is positioned right after the 4-byte ZIP signature, and is
+ * advanced through the archive as entries are scanned.
+ */
+private fun isQnnZip(inputStream: InputStream): Boolean {
+    var entries = 0
+    while (entries < 4096) {
+        // Fixed part of a local file header, minus the 4-byte signature.
+        val header = readHeader(inputStream, 26)
+        if (header.size < 26) return false
+
+        val flags = readLeShort(header, 2)
+        val csize = readLeInt(header, 14)
+        val nlen = readLeShort(header, 22)
+        val elen = readLeShort(header, 24)
+        if (nlen <= 0) return false
+
+        val nameBytes = readHeader(inputStream, nlen)
+        if (nameBytes.size < nlen) return false
+        val name = String(nameBytes, 0, nlen, Charsets.UTF_8)
+        val base = name.substringAfterLast('/').substringAfterLast('\\')
+        if (base.equals("encoder.onnx", ignoreCase = true) ||
+            base.equals("decoder.onnx", ignoreCase = true)
+        ) {
+            return true
+        }
+
+        // Skip the extra field and the (compressed) entry data. If the data
+        // descriptor bit (bit 3) is set, the compressed size is absent from the
+        // local header (streamed ZIPs) and we cannot cheaply skip — bail out
+        // conservatively. The AI Hub archives set sizes in the local header.
+        if ((flags and 0x0008) != 0) return false
+        if (!skipFully(inputStream, elen.toLong())) return false
+        if (!skipFully(inputStream, csize.toLong())) return false
+
+        // Next entry's signature (PK\x03\x04); central directory (PK\x01\x02)
+        // or end-of-archive means no model part was found.
+        val sig = readHeader(inputStream, 4)
+        if (sig.size < 4) return false
+        if (!(sig[0] == 0x50.toByte() && sig[1] == 0x4b.toByte() &&
+                sig[2] == 0x03.toByte() && sig[3] == 0x04.toByte())
+        ) {
+            return false
+        }
+        entries++
+    }
+    return false
+}
+
+private fun readLeShort(b: ByteArray, off: Int): Int =
+    (b[off].toInt() and 0xff) or ((b[off + 1].toInt() and 0xff) shl 8)
+
+private fun readLeInt(b: ByteArray, off: Int): Int =
+    (b[off].toInt() and 0xff) or
+    ((b[off + 1].toInt() and 0xff) shl 8) or
+    ((b[off + 2].toInt() and 0xff) shl 16) or
+    ((b[off + 3].toInt() and 0xff) shl 24)
+
+private fun skipFully(inputStream: InputStream, count: Long): Boolean {
+    var remaining = count
+    val scratch = ByteArray(8192)
+    while (remaining > 0) {
+        val skipped = inputStream.skip(remaining)
+        if (skipped > 0) {
+            remaining -= skipped
+        } else {
+            val toRead = minOf(remaining, scratch.size.toLong()).toInt()
+            val n = inputStream.read(scratch, 0, toRead)
+            if (n < 0) return false
+            remaining -= n
+        }
+    }
+    return true
+}
+
+/**
+ * Find a named file (`encoder.onnx` / `decoder.onnx`) anywhere under an
+ * extracted QNN ZIP directory (the AI Hub archive nests them, so a shallow
+ * lookup is not enough). Case-insensitive match.
+ */
+private fun findQnnPart(dir: File, name: String): File? =
+    dir.walkTopDown().firstOrNull { it.isFile && it.name.equals(name, ignoreCase = true) }
 
 object ResourceHelper {
     val BuiltInVoiceInputFallbacks = mapOf(
@@ -575,6 +754,36 @@ object ResourceHelper {
         return ModelFileFile(R.string.settings_external_model_name, file)
     }
 
+    fun tryFindingQnnVoiceInputModelForLocale(context: Context, locale: Locale): ModelLoader? {
+        // Single precompiled context binary (legacy single-file path).
+        val file = runBlocking { findFileForKind(context, locale, FileKind.VoiceInputQnn) }
+        if (file != null && file.isFile) {
+            return ModelQnnFileFile(R.string.settings_external_model_name, file)
+        }
+
+        // ZIP container extracted to a directory holding encoder.bin + decoder.bin.
+        val dir = runBlocking { findFileForKind(context, locale, FileKind.VoiceInputQnnZip) }
+        if (dir != null && dir.isDirectory) {
+            val encoder = findQnnPart(dir, "encoder.onnx")
+            val decoder = findQnnPart(dir, "decoder.onnx")
+            if (encoder != null && decoder != null) {
+                return ModelQnnZip(R.string.settings_external_model_name, encoder, decoder)
+            }
+        }
+
+        return null
+    }
+
+    fun getVoiceInputModelUseGpu(context: Context, locale: Locale): Boolean {
+        val key = findKeyForLocaleAndKind(context, locale, FileKind.VoiceInput) ?: return false
+        return context.getSetting(FileKind.VoiceInput.gpuPreferenceKeyFor(key), false)
+    }
+
+    fun setVoiceInputModelUseGpu(context: Context, locale: Locale, useGpu: Boolean) {
+        val key = findKeyForLocaleAndKind(context, locale, FileKind.VoiceInput) ?: return
+        runBlocking { context.setSetting(FileKind.VoiceInput.gpuPreferenceKeyFor(key), useGpu) }
+    }
+
     fun tryOpeningCustomMainDictionaryForLocale(context: Context, locale: Locale): ReadOnlyBinaryDictionary? {
         val file = runBlocking { findFileForKind(context, locale, FileKind.Dictionary) } ?: return null
 
@@ -593,7 +802,7 @@ object ResourceHelper {
         val value = runBlocking { context.getSetting(setting, "") }
         if(value.isNotBlank()) {
             val file = File(context.getExternalFilesDir(null), value)
-            file.delete()
+            if (file.isDirectory) file.deleteRecursively() else file.delete()
         }
 
         runBlocking { context.setSetting(kind.preferenceKeyFor(locale.toString()), "") }
@@ -715,7 +924,9 @@ class ImportResourceActivity : ComponentActivity() {
         val outputFileName = "${fileKind.kind.name.lowercase()}_$sanitizedLocaleForFilename${fileKind.kind.extension()}"
 
         lifecycleScope.launch {
-            withContext(Dispatchers.IO) {
+            var qnnZipImportFailed = false
+            try {
+                withContext(Dispatchers.IO) {
                 // This is a special case for now
                 if (fileKind.kind == FileKind.Transformer) {
                     // 1. Copy file
@@ -735,6 +946,43 @@ class ImportResourceActivity : ComponentActivity() {
                     // 2. Update reference
                     val language = locale.split("_").first()
                     ModelPaths.updateModelOption(applicationContext, language, outputFile)
+                } else if (fileKind.kind == FileKind.VoiceInputQnnZip) {
+                    // Stream-extract the ZIP straight into the model directory
+                    // (no temp-file copy). The AI Hub archive nests
+                    // encoder.onnx/decoder.onnx (+ their *_qairt_context.bin
+                    // siblings) under a top-level directory, so a recursive
+                    // lookup is done afterwards.
+                    val outDir = File(
+                        applicationContext.getExternalFilesDir(null),
+                        outputFileName.removeSuffix(".zip")
+                    )
+                    if (outDir.exists()) outDir.deleteRecursively()
+
+                    val stream = applicationContext.contentResolver.openInputStream(uri!!)
+                    if (stream == null) {
+                        qnnZipImportFailed = true
+                    } else {
+                        stream.use { ZipFileHelper.extract(it, outDir) }
+
+                        val encoder = findQnnPart(outDir, "encoder.onnx")
+                        val decoder = findQnnPart(outDir, "decoder.onnx")
+                        if (encoder == null || decoder == null) {
+                            outDir.deleteRecursively()
+                            qnnZipImportFailed = true
+                        } else {
+                            // Update reference to the extracted directory.
+                            applicationContext.setSetting(
+                                fileKind.kind.preferenceKeyFor(locale),
+                                outDir.name
+                            )
+                            fileKind.name?.let {
+                                applicationContext.setSetting(
+                                    fileKind.kind.namePreferenceKeyFor(locale),
+                                    it
+                                )
+                            }
+                        }
+                    }
                 } else {
                     // 1. Copy file
                     val contentResolver = applicationContext.contentResolver
@@ -760,8 +1008,16 @@ class ImportResourceActivity : ComponentActivity() {
                         )
                     }
                 }
+                }
+            } catch (e: Exception) {
+                Log.e("ImportResource", "Model import failed", e)
+                qnnZipImportFailed = true
             }
-            GlobalIMEMessage.tryEmit(IMEMessage.ReloadResources)
+            if (qnnZipImportFailed) {
+                Toast.makeText(applicationContext, R.string.file_kind_qnn_zip_invalid, Toast.LENGTH_LONG).show()
+            } else {
+                GlobalIMEMessage.tryEmit(IMEMessage.ReloadResources)
+            }
             finish()
         }
     }

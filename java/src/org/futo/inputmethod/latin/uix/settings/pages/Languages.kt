@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.contentColorFor
@@ -56,6 +57,7 @@ import org.futo.inputmethod.latin.SubtypesSetting
 import org.futo.inputmethod.latin.uix.FileKind
 import org.futo.inputmethod.latin.uix.ResourceHelper
 import org.futo.inputmethod.latin.uix.getSetting
+import org.futo.inputmethod.latin.uix.gpuPreferenceKeyFor
 import org.futo.inputmethod.latin.uix.icon
 import org.futo.inputmethod.latin.uix.kindTitle
 import org.futo.inputmethod.latin.uix.namePreferenceKeyFor
@@ -76,6 +78,7 @@ import org.futo.inputmethod.latin.utils.Dictionaries
 import org.futo.inputmethod.latin.utils.SubtypeLocaleUtils
 import org.futo.inputmethod.latin.xlm.ModelPaths
 import org.futo.inputmethod.updates.openURI
+import org.futo.voiceinput.shared.ggml.GpuSupport
 import java.util.Locale
 
 private val InputMethodSubtype.layoutSetName
@@ -216,7 +219,10 @@ fun LanguageSurface(
     onLayoutRemoved: (InputMethodSubtype) -> Unit,
     onLayoutAdditionRequested: () -> Unit,
     onLanguageRemoved: () -> Unit,
-    onToggleMultilingualBucket: (Boolean) -> Unit
+    onToggleMultilingualBucket: (Boolean) -> Unit,
+    voiceInputUseGpu: Boolean = false,
+    voiceInputGpuSupported: Boolean = false,
+    onVoiceInputGpuToggled: (Boolean) -> Unit = {}
 ) {
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
@@ -252,6 +258,32 @@ fun LanguageSurface(
                     selection = item.options.voiceInputModel
                         ?: stringResource(R.string.language_settings_resource_none)
                 ) { onConfigurableSelected(FileKind.VoiceInput) }
+                if (voiceInputGpuSupported && item.options.voiceInputModel != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 6.dp, top = 4.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                stringResource(R.string.language_settings_voice_input_hw_accel_toggle),
+                                style = Typography.SmallMl,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                            )
+                            Text(
+                                stringResource(R.string.language_settings_voice_input_hw_accel_toggle_subtitle),
+                                style = Typography.Small,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f)
+                            )
+                        }
+                        Switch(
+                            checked = voiceInputUseGpu,
+                            onCheckedChange = { onVoiceInputGpuToggled(it) },
+                            modifier = Modifier.align(Alignment.CenterVertically)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
                 LanguageConfigurable(
                     kind = FileKind.Dictionary,
                     selection = item.options.dictionary
@@ -372,12 +404,23 @@ fun ConfirmResourceActionDialog(
     isCurrentlySet: Boolean,
     locale: Locale
 ) {
+    val context = LocalContext.current
     val hasBuiltInFallback = if (resourceKind == FileKind.VoiceInput) {
         ResourceHelper.BuiltInVoiceInputFallbacks[locale.language] != null
+    } else if (resourceKind == FileKind.VoiceInputQnn) {
+        false
+    } else if (resourceKind == FileKind.VoiceInputQnnZip) {
+        false
     } else if (resourceKind == FileKind.Dictionary) {
-        Dictionaries.getDictionaryIfExists(LocalContext.current, locale, Dictionaries.DictionaryKind.Any) != null
+        Dictionaries.getDictionaryIfExists(context, locale, Dictionaries.DictionaryKind.Any) != null
     } else {
         true
+    }
+
+    val showGpuSwitch = resourceKind == FileKind.VoiceInput && isCurrentlySet &&
+        GpuSupport.isAvailable(context)
+    val gpuEnabled = remember(locale, isCurrentlySet) {
+        mutableStateOf(showGpuSwitch && ResourceHelper.getVoiceInputModelUseGpu(context, locale))
     }
 
     AlertDialog(
@@ -388,34 +431,66 @@ fun ConfirmResourceActionDialog(
             Text(text = "${locale.displayLanguage} - ${resourceKind.kindTitle(LocalResources.current)}")
         },
         text = {
-            if (isCurrentlySet) {
-                Text(
-                    text = when (resourceKind) {
-                        FileKind.VoiceInput -> stringResource(R.string.language_settings_resource_voice_input_selected)
-                        FileKind.Transformer -> stringResource(R.string.language_settings_resource_transformer_selected)
-                        FileKind.Dictionary -> stringResource(R.string.language_settings_resource_dictionary_selected)
-                        FileKind.Invalid -> ""
-                    } + if (!hasBuiltInFallback) {
-                        "\n\n" +
-                                when (resourceKind) {
-                                    FileKind.VoiceInput -> stringResource(R.string.language_settings_resource_voice_input_selected_no_default_warning)
-                                    FileKind.Transformer -> stringResource(R.string.language_settings_resource_transformer_selected_no_default_warning)
-                                    FileKind.Dictionary -> stringResource(R.string.language_settings_resource_dictionary_selected_no_default_warning)
-                                    FileKind.Invalid -> ""
-                                }
-                    } else {
-                        ""
+            Column {
+                if (isCurrentlySet) {
+                    Text(
+                        text = when (resourceKind) {
+                            FileKind.VoiceInput -> stringResource(R.string.language_settings_resource_voice_input_selected)
+                            FileKind.VoiceInputQnn -> stringResource(R.string.language_settings_resource_voice_input_qnn_selected)
+                            FileKind.VoiceInputQnnZip -> stringResource(R.string.language_settings_resource_voice_input_qnn_selected)
+                            FileKind.Transformer -> stringResource(R.string.language_settings_resource_transformer_selected)
+                            FileKind.Dictionary -> stringResource(R.string.language_settings_resource_dictionary_selected)
+                            FileKind.Invalid -> ""
+                        } + if (!hasBuiltInFallback) {
+                            "\n\n" +
+                                    when (resourceKind) {
+                                        FileKind.VoiceInput -> stringResource(R.string.language_settings_resource_voice_input_selected_no_default_warning)
+                                        FileKind.VoiceInputQnn -> stringResource(R.string.language_settings_resource_voice_input_selected_no_default_warning)
+                                        FileKind.VoiceInputQnnZip -> stringResource(R.string.language_settings_resource_voice_input_selected_no_default_warning)
+                                        FileKind.Transformer -> stringResource(R.string.language_settings_resource_transformer_selected_no_default_warning)
+                                        FileKind.Dictionary -> stringResource(R.string.language_settings_resource_dictionary_selected_no_default_warning)
+                                        FileKind.Invalid -> ""
+                                    }
+                        } else {
+                            ""
+                        }
+                    )
+                } else {
+                    Text(
+                        text = when (resourceKind) {
+                            FileKind.VoiceInput -> stringResource(R.string.language_settings_resource_voice_input_selected_unset)
+                            FileKind.VoiceInputQnn -> stringResource(R.string.language_settings_resource_voice_input_selected_unset)
+                            FileKind.VoiceInputQnnZip -> stringResource(R.string.language_settings_resource_voice_input_selected_unset)
+                            FileKind.Transformer -> stringResource(R.string.language_settings_resource_transformer_selected_unset)
+                            FileKind.Dictionary -> stringResource(R.string.language_settings_resource_dictionary_selected_unset)
+                            FileKind.Invalid -> ""
+                        }
+                    )
+                }
+
+                if (showGpuSwitch) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                stringResource(R.string.language_settings_voice_input_hw_accel_toggle),
+                                style = Typography.SmallMl
+                            )
+                            Text(
+                                stringResource(R.string.language_settings_voice_input_hw_accel_toggle_subtitle),
+                                style = Typography.Small,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = gpuEnabled.value,
+                            onCheckedChange = { enabled ->
+                                gpuEnabled.value = enabled
+                                ResourceHelper.setVoiceInputModelUseGpu(context, locale, enabled)
+                            }
+                        )
                     }
-                )
-            } else {
-                Text(
-                    text = when (resourceKind) {
-                        FileKind.VoiceInput -> stringResource(R.string.language_settings_resource_voice_input_selected_unset)
-                        FileKind.Transformer -> stringResource(R.string.language_settings_resource_transformer_selected_unset)
-                        FileKind.Dictionary -> stringResource(R.string.language_settings_resource_dictionary_selected_unset)
-                        FileKind.Invalid -> ""
-                    }
-                )
+                }
             }
         },
         onDismissRequest = {
@@ -569,6 +644,8 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
     val resources = LocalResources.current
     val deleteDialogInfo: MutableState<DeleteInfo?> = remember { mutableStateOf(null) }
     val languageDeleteInfo: MutableState<Locale?> = remember { mutableStateOf(null) }
+    val gpuRevision = remember { mutableStateOf(0) }
+    val gpuSupported = remember { GpuSupport.isAvailable(context) }
 
     val inputMethods = useDataStoreValue(SubtypesSetting)
     val inputMethodList = remember(inputMethods) {
@@ -582,17 +659,22 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
     if (deleteDialogInfo.value != null) {
         val info = deleteDialogInfo.value!!
         ConfirmResourceActionDialog(
-            onDismissRequest = { deleteDialogInfo.value = null },
+            onDismissRequest = {
+                gpuRevision.value++
+                deleteDialogInfo.value = null
+            },
             onExplore = {
                 context.openURI(info.kind.getAddonUrlForLocale(info.locale), true)
                 deleteDialogInfo.value = null
             },
             onDelete = {
                 ResourceHelper.deleteResourceForLanguage(context, info.kind, info.locale)
+                gpuRevision.value++
                 deleteDialogInfo.value = null
             },
             onImport = {
                 openModelImporter(context)
+                gpuRevision.value++
                 deleteDialogInfo.value = null
             },
 
@@ -686,6 +768,16 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
                     }
                 }
 
+            val voiceInputCustomKey = runBlocking {
+                ResourceHelper.findKeyForLocaleAndKind(context, locale, FileKind.VoiceInput)
+            }
+            val voiceInputUseGpu = remember(gpuRevision.value, voiceInputCustomKey) {
+                voiceInputCustomKey?.let {
+                    context.getSetting(FileKind.VoiceInput.gpuPreferenceKeyFor(it), false)
+                } ?: false
+            }
+            val voiceInputGpuSupported = gpuSupported && voiceInputCustomKey != null
+
             val options = LanguageOptions(
                 voiceInputModel = voiceInputModelName,
                 dictionary = dictionaryName,
@@ -740,6 +832,12 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
                     }
 
                     multilingualBucket.setValue(newSet)
+                },
+                voiceInputUseGpu = voiceInputUseGpu,
+                voiceInputGpuSupported = voiceInputGpuSupported,
+                onVoiceInputGpuToggled = { enabled ->
+                    ResourceHelper.setVoiceInputModelUseGpu(context, locale, enabled)
+                    gpuRevision.value++
                 }
             )
 

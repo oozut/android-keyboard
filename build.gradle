@@ -457,6 +457,15 @@ dependencies {
 
     implementation files('libs/futo-swipe-release.aar')
 
+    // QNN (Hexagon HTP) voice input: ONNX Runtime with the QNN EP
+    // (libonnxruntime.so) + Qualcomm's QNN HTP runtime (libQnnHtp.so,
+    // libQnnHtpPrepare.so, libQnnSystem.so and the HTP Stub/Skel libraries).
+    // Vendored as prebuilt AARs in the libs/ submodule (oozut fork of
+    // FUTO's android-libs). The native side dlopens libonnxruntime.so and
+    // libQnnHtp.so by absolute path at runtime.
+    implementation files('libs/onnxruntime-android-qnn-1.27.0.aar')
+    implementation files('libs/qnn-runtime-2.48.0.aar')
+
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
 
     debugImplementation 'androidx.compose.ui:ui-tooling'

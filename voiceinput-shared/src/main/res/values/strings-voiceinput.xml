@@ -58,4 +58,13 @@
          usually the fix is to re-download the model and re-import it. For example this may happen
          when the model is imported before the file is finished downloading -->
     <string name="model_load_error">Error loading model. It may be corrupted or incomplete. Try reverting it to default or downloading again.</string>
+
+    <!-- Occurs when a voice input model is too large to fit in the device's hardware-accelerator
+         memory, so it cannot be fully loaded. Suggests trying a smaller model or running on the
+         CPU instead. -->
+    <string name="model_load_oom">This model is too large to load using hardware acceleration on this device. Try a smaller model or switch it to run on the CPU.</string>
+
+    <!-- Occurs when a hardware-accelerated model is assigned but its backend (e.g. QNN on
+         Snapdragon) is not available on this device or is not functional yet. -->
+    <string name="model_load_hw_unavailable">This model requires hardware acceleration that is not available on this device. Assign a standard voice input model to run on the CPU instead.</string>
 </resources>

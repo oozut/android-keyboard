@@ -6,13 +6,19 @@ enum class MagnitudeState {
     NOT_TALKED_YET, MIC_MAY_BE_BLOCKED, TALKING
 }
 
+enum class ModelLoadFailure {
+    Invalid,
+    OutOfMemory,
+    HardwareUnavailable
+}
+
 interface AudioRecognizerListener {
     fun cancelled()
     fun finished(result: String)
     fun languageDetected(language: Language)
     fun partialResult(result: String)
     fun decodingStatus(status: InferenceState)
-    fun modelLoadingFailed()
+    fun modelLoadingFailed(failure: ModelLoadFailure)
 
     fun loading()
     fun needPermission(onResult: (Boolean) -> Unit)

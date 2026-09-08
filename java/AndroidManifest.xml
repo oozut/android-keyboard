@@ -44,6 +44,14 @@
          android:enableOnBackInvokedCallback="true"
          android:name=".CrashLoggingApplication">
 
+        <!--
+          QNN (Qualcomm Hexagon) runtime libraries. These are present on
+          Snapdragon devices and absent elsewhere, so they are marked
+          required=false; the app detects device type at runtime
+          (BackendSupport) and only touches the QNN path on Snapdragon.
+        -->
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+
         <!-- Services -->
         <service android:name=".LatinIME"
              android:label="@string/english_ime_name"

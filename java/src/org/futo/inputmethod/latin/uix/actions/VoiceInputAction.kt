@@ -52,8 +52,10 @@ import org.futo.voiceinput.shared.RecognizerViewListener
 import org.futo.voiceinput.shared.RecognizerViewSettings
 import org.futo.voiceinput.shared.RecordingSettings
 import org.futo.voiceinput.shared.SoundPlayer
+import org.futo.voiceinput.shared.ggml.BackendSupport
 import org.futo.voiceinput.shared.types.Language
 import org.futo.voiceinput.shared.types.ModelLoader
+import org.futo.voiceinput.shared.types.ModelQnnFileFile
 import org.futo.voiceinput.shared.types.getLanguageFromWhisperString
 import org.futo.voiceinput.shared.ui.MicrophoneDeviceState
 import org.futo.voiceinput.shared.whisper.DecodingConfiguration
@@ -132,6 +134,19 @@ private class VoiceInputActionWindow(
 
         val primaryModel = model
         val languageSpecificModels = mutableMapOf<Language, ModelLoader>()
+
+        // Hardware acceleration is strictly opt-in per model assignment
+        // (default off) for ggml models. A QNN context binary inherently runs
+        // on the QNN backend, so it forces hardware acceleration on. The
+        // backend is resolved from the device type: QNN for Snapdragon,
+        // Vulkan/whisper.cpp for other Vulkan>=1.2 devices, CPU otherwise
+        // (Mali devices and anything without Vulkan fall back to CPU).
+        val preferHardware = ResourceHelper.getVoiceInputModelUseGpu(
+            context,
+            locales.firstOrNull() ?: Locale.ROOT
+        ) || primaryModel is ModelQnnFileFile
+        val backend = BackendSupport.resolveBackend(context, preferHardware)
+
         val allowedLanguages = locales.mapNotNull { getLanguageFromWhisperString(it.language) }.toSet()
         val glossary = if(usePersonalDict) {
             state.userDictionaryObserver.getWords(locales).filter { it.shortcut.isNullOrEmpty() }.map { it.word }
@@ -147,7 +162,8 @@ private class VoiceInputActionWindow(
             shouldAnimateBubble = animateBubble,
             modelRunConfiguration = MultiModelRunConfiguration(
                 primaryModel = primaryModel,
-                languageSpecificModels = languageSpecificModels
+                languageSpecificModels = languageSpecificModels,
+                backend = backend
             ),
             decodingConfiguration = DecodingConfiguration(
                 glossary = glossary,
@@ -308,8 +324,17 @@ val VoiceInputAction = Action(icon = R.drawable.mic_fill,
     persistentState = { VoiceInputPersistentState(it) },
     windowImpl = { manager, persistentState ->
         val locales = manager.getActiveLocales()
+        val locale = locales.firstOrNull() ?: Locale.ROOT
 
-        val model = ResourceHelper.tryFindingVoiceInputModelForLocale(manager.getContext(), locales.firstOrNull() ?: Locale.ROOT)
+        // Snapdragon devices are routed to QNN (the Vulkan/whisper.cpp path is
+        // broken on Adreno). If a QNN context binary is assigned for this
+        // locale, prefer it; otherwise fall back to the ggml model on CPU.
+        val model = if (BackendSupport.isSnapdragon()) {
+            ResourceHelper.tryFindingQnnVoiceInputModelForLocale(manager.getContext(), locale)
+                ?: ResourceHelper.tryFindingVoiceInputModelForLocale(manager.getContext(), locale)
+        } else {
+            ResourceHelper.tryFindingVoiceInputModelForLocale(manager.getContext(), locale)
+        }
 
         if(model == null) {
             VoiceInputNoModelWindow(locales.firstOrNull() ?: Locale.ROOT)

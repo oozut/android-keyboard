@@ -22,6 +22,7 @@ import org.futo.voiceinput.shared.types.AudioRecognizerListener
 import org.futo.voiceinput.shared.types.InferenceState
 import org.futo.voiceinput.shared.types.Language
 import org.futo.voiceinput.shared.types.MagnitudeState
+import org.futo.voiceinput.shared.types.ModelLoadFailure
 import org.futo.voiceinput.shared.ui.InnerRecognize
 import org.futo.voiceinput.shared.ui.MicrophoneDeviceState
 import org.futo.voiceinput.shared.ui.PartialDecodingResult
@@ -100,6 +101,8 @@ class RecognizerView(
         bluetoothPreferredByUser = false
     ))
 
+    private val modelLoadFailureState = mutableStateOf(ModelLoadFailure.Invalid)
+
     @Composable
     fun Content() {
         when (currentViewState.value) {
@@ -142,7 +145,13 @@ class RecognizerView(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() })) {
                     Text(
-                        stringResource(R.string.model_load_error),
+                        stringResource(
+                            when (modelLoadFailureState.value) {
+                                ModelLoadFailure.OutOfMemory -> R.string.model_load_oom
+                                ModelLoadFailure.Invalid -> R.string.model_load_error
+                                ModelLoadFailure.HardwareUnavailable -> R.string.model_load_hw_unavailable
+                            }
+                        ),
                         modifier = Modifier
                             .align(Alignment.Center)
                             .padding(8.dp), textAlign = TextAlign.Center)
@@ -172,8 +181,9 @@ class RecognizerView(
             // TODO
         }
 
-        override fun modelLoadingFailed() {
+        override fun modelLoadingFailed(failure: ModelLoadFailure) {
             listener.cancelled()
+            modelLoadFailureState.value = failure
             currentViewState.value = CurrentView.ModelError
         }
 

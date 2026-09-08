@@ -40,36 +40,45 @@ object ZipFileHelper {
 
     fun extract(file: File, outputDir: File) {
         require(file.isFile) { "ZIP file must be a regular file" }
+        file.inputStream().use { extract(it, outputDir) }
+    }
+
+    /**
+     * Extract a ZIP read from [inputStream] into [outputDir] (zip-slip safe).
+     *
+     * Used for the QNN model containers, where the source is a content-resolver
+     * stream (an 859 MB archive): streaming straight from the source avoids a
+     * second full copy through a temp file.
+     */
+    fun extract(inputStream: InputStream, outputDir: File) {
         require(outputDir.mkdirs() || outputDir.isDirectory) { "Cannot create output directory" }
 
         val canonicalOutputDir = outputDir.canonicalFile
         val outputDirPathWithSeparator = canonicalOutputDir.path + File.separator
 
-        file.inputStream().buffered().use { fis ->
-            ZipInputStream(fis).use { zipIn ->
-                var entry = zipIn.nextEntry
-                while (entry != null) {
-                    val outputFile = File(outputDir, entry.name).canonicalFile
+        ZipInputStream(inputStream.buffered()).use { zipIn ->
+            var entry = zipIn.nextEntry
+            while (entry != null) {
+                val outputFile = File(outputDir, entry.name).canonicalFile
 
-                    val outputPath = outputFile.path
-                    if (!outputPath.startsWith(outputDirPathWithSeparator) && outputPath != canonicalOutputDir.path) {
-                        throw SecurityException("Entry is outside of the target directory: ${entry.name}")
-                    }
-
-                    if (entry.isDirectory) {
-                        outputFile.mkdirs()
-                    } else {
-                        // Ensure parent directory exists for file entries
-                        outputFile.parentFile?.mkdirs()
-
-                        outputFile.outputStream().use { fos ->
-                            zipIn.copyTo(fos)
-                        }
-                    }
-
-                    zipIn.closeEntry()
-                    entry = zipIn.nextEntry
+                val outputPath = outputFile.path
+                if (!outputPath.startsWith(outputDirPathWithSeparator) && outputPath != canonicalOutputDir.path) {
+                    throw SecurityException("Entry is outside of the target directory: ${entry.name}")
                 }
+
+                if (entry.isDirectory) {
+                    outputFile.mkdirs()
+                } else {
+                    // Ensure parent directory exists for file entries
+                    outputFile.parentFile?.mkdirs()
+
+                    outputFile.outputStream().buffered().use { fos ->
+                        zipIn.copyTo(fos)
+                    }
+                }
+
+                zipIn.closeEntry()
+                entry = zipIn.nextEntry
             }
         }
     }

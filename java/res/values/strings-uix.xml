@@ -322,6 +322,7 @@
     <string name="language_settings_resource_unsupported_indicator">(Unsupported)</string>
     <string name="language_settings_resource_builtin_dictionary_name">Built-in Dictionary</string>
     <string name="language_settings_resource_voice_input_selected">Would you like to revert the voice input model to default, or replace it with another file?</string>
+    <string name="language_settings_resource_voice_input_qnn_selected">Would you like to remove the QNN voice input model, or replace it with another file?</string>
     <string name="language_settings_resource_voice_input_selected_no_default_warning">No built-in voice input model exists for this language, so if you remove it, voice input will stop working for this language until you import a different model!</string>
     <string name="language_settings_resource_voice_input_selected_unset">You have not configured a custom voice input model for this language. You can explore downloads online, or import one from a file.</string>
     <string name="language_settings_resource_transformer_selected">Would you like to revert the transformer model to default, or replace it with another file?</string>
@@ -335,6 +336,10 @@
     <string name="language_settings_resource_revert_to_default_button">Revert to Default</string>
     <string name="language_settings_resource_remove_button">Remove</string>
     <string name="language_settings_resource_explore_online_button">Explore</string>
+
+    <!-- Hardware-acceleration toggle for the per-language voice input model -->
+    <string name="language_settings_voice_input_hw_accel_toggle">Use hardware acceleration</string>
+    <string name="language_settings_voice_input_hw_accel_toggle_subtitle">Faster transcription, but uses more memory</string>
 
     <string name="language_settings_remove_language_title">Delete %1$s?</string>
     <string name="language_settings_remove_language_body">Remove %1$s, all of its associated layouts and custom resources?</string>
@@ -350,6 +355,9 @@
 
     <!-- Reource importer -->
     <string name="file_kind_voice_input_model">Voice Input Model</string>
+    <string name="file_kind_voice_input_qnn_model">QNN Voice Input Model</string>
+    <string name="file_kind_voice_input_qnn_zip_model">QNN Voice Input Model (ZIP)</string>
+    <string name="file_kind_qnn_zip_invalid">The ZIP must be the Qualcomm AI Hub "precompiled_qnn_onnx" package containing encoder.onnx and decoder.onnx (with their *_qairt_context.bin files).</string>
     <string name="file_kind_transformer_model">Transformer Model</string>
     <string name="file_kind_dictionary">Dictionary</string>
     <string name="file_kind_invalid_file">Invalid file</string>
