@@ -15,6 +15,7 @@
 #include <stdio.h>
 
 #include <thread>
+#include <mutex>
 #include <vector>
 
 namespace mel {
@@ -34,6 +35,11 @@ constexpr int QUANT_ZP = 31605;
 static std::vector<float> g_filters;  // [nMel][201]
 static int g_nmel = 0;
 static float g_hann[N_FFT];
+
+// The filterbank tables are process-global. MultiModelRunner.preload()
+// constructs engines on parallel threads, so init() must not rewrite them
+// while another engine is using them.
+static std::mutex g_init_mutex;
 
 // Recursive Cooley-Tukey for even N with a naive DFT base for odd N — same
 // approach whisper.cpp uses; exact enough at N=400 (base case N=25).
@@ -76,6 +82,13 @@ static void fft(const float* in, int n, int stride, float* out /* interleaved re
 int numMelBins() { return g_nmel; }
 
 bool init(const char* filtersPath, int nMel) {
+    std::lock_guard<std::mutex> lock(g_init_mutex);
+
+    // Load once: a concurrent second engine's init returns the already-loaded
+    // tables instead of rewriting them mid-flight. (nMel is constant for this
+    // build, so a mismatch should never happen.)
+    if (!g_filters.empty() && g_nmel == nMel) return true;
+
     FILE* f = fopen(filtersPath, "rb");
     if (!f) return false;
     g_nmel = nMel;

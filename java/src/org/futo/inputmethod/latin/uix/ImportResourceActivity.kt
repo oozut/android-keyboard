@@ -75,6 +75,8 @@ import org.futo.inputmethod.latin.utils.ZipFileHelper
 import org.futo.inputmethod.latin.xlm.ModelPaths
 import org.futo.inputmethod.updates.openURI
 import org.futo.voiceinput.shared.BUILTIN_ENGLISH_MODEL
+import org.futo.voiceinput.shared.ggml.Backend
+import org.futo.voiceinput.shared.ggml.BackendSupport
 import org.futo.voiceinput.shared.types.ModelFileFile
 import org.futo.voiceinput.shared.types.ModelLoader
 import org.futo.voiceinput.shared.types.ModelQnnFileFile
@@ -122,10 +124,22 @@ fun FileKind.namePreferenceKeyFor(locale: String): Preferences.Key<String> {
     return stringPreferencesKey("resourcename_${name}_${locale}")
 }
 
+/**
+ * Legacy per-locale "use hardware acceleration" flag. Superseded by
+ * [backendPreferenceKeyFor]; still read once so existing installs keep their
+ * setting when they upgrade.
+ */
 fun FileKind.gpuPreferenceKeyFor(locale: String): Preferences.Key<Boolean> {
     assert(this != FileKind.Invalid)
     val locale = locale.replace("#", "H")
     return booleanPreferencesKey("resource_${name}_gpu_${locale}")
+}
+
+/** Per-locale, explicitly chosen [Backend] for the assigned voice input model. */
+fun FileKind.backendPreferenceKeyFor(locale: String): Preferences.Key<String> {
+    assert(this != FileKind.Invalid)
+    val locale = locale.replace("#", "H")
+    return stringPreferencesKey("resource_${name}_backend_${locale}")
 }
 
 @Composable
@@ -713,6 +727,20 @@ private fun skipFully(inputStream: InputStream, count: Long): Boolean {
 private fun findQnnPart(dir: File, name: String): File? =
     dir.walkTopDown().firstOrNull { it.isFile && it.name.equals(name, ignoreCase = true) }
 
+/**
+ * Which model + backend a locale's voice input will use. A QNN model always
+ * pairs with [Backend.QNN]; a ggml model with [Backend.CPU] or [Backend.VULKAN].
+ */
+data class VoiceInputSelection(
+    val backend: Backend,
+    val qnnModel: ModelLoader?,
+    val ggmlModel: ModelLoader?
+) {
+    /** The loader that [backend] will run, or `null` when it has no model. */
+    val model: ModelLoader?
+        get() = if (backend == Backend.QNN) qnnModel else ggmlModel
+}
+
 object ResourceHelper {
     val BuiltInVoiceInputFallbacks = mapOf(
         "en" to BUILTIN_ENGLISH_MODEL
@@ -761,7 +789,7 @@ object ResourceHelper {
             return ModelQnnFileFile(R.string.settings_external_model_name, file)
         }
 
-        // ZIP container extracted to a directory holding encoder.bin + decoder.bin.
+        // ZIP container extracted to a directory holding encoder.onnx + decoder.onnx.
         val dir = runBlocking { findFileForKind(context, locale, FileKind.VoiceInputQnnZip) }
         if (dir != null && dir.isDirectory) {
             val encoder = findQnnPart(dir, "encoder.onnx")
@@ -774,14 +802,65 @@ object ResourceHelper {
         return null
     }
 
-    fun getVoiceInputModelUseGpu(context: Context, locale: Locale): Boolean {
-        val key = findKeyForLocaleAndKind(context, locale, FileKind.VoiceInput) ?: return false
-        return context.getSetting(FileKind.VoiceInput.gpuPreferenceKeyFor(key), false)
+    /**
+     * Locale key the per-locale voice input backend preference lives under. It
+     * follows whichever resource key is already assigned for the locale so it
+     * matches the legacy key scheme, and falls back to the plain locale tag so a
+     * choice can still be stored for a locale that only has a built-in model
+     * (e.g. English) or only a Qualcomm model.
+     */
+    private fun voiceInputPreferenceKey(context: Context, locale: Locale): String =
+        findKeyForLocaleAndKind(context, locale, FileKind.VoiceInput)
+            ?: findKeyForLocaleAndKind(context, locale, FileKind.VoiceInputQnnZip)
+            ?: findKeyForLocaleAndKind(context, locale, FileKind.VoiceInputQnn)
+            ?: locale.toString()
+
+    /**
+     * The backend the user explicitly picked for [locale], or `null` when they
+     * never chose one (callers should then use [BackendSupport.defaultBackend]).
+     *
+     * The choice is stored against the ggml voice input model key because that is
+     * the only assignment where there is a choice to make: a QNN model can only
+     * ever run on [Backend.QNN]. Installs that predate the backend picker stored
+     * a boolean "use hardware acceleration" flag instead; a legacy `true` maps to
+     * the fastest backend the device supports.
+     */
+    fun getVoiceInputBackend(context: Context, locale: Locale): Backend? {
+        val key = voiceInputPreferenceKey(context, locale)
+
+        val stored = context.getSetting(FileKind.VoiceInput.backendPreferenceKeyFor(key), "")
+        if (stored.isNotEmpty()) {
+            return Backend.entries.firstOrNull { it.name == stored }
+        }
+
+        val legacyUseGpu = context.getSetting(FileKind.VoiceInput.gpuPreferenceKeyFor(key), false)
+        return if (legacyUseGpu) BackendSupport.preferredBackend(context) else null
     }
 
-    fun setVoiceInputModelUseGpu(context: Context, locale: Locale, useGpu: Boolean) {
-        val key = findKeyForLocaleAndKind(context, locale, FileKind.VoiceInput) ?: return
-        runBlocking { context.setSetting(FileKind.VoiceInput.gpuPreferenceKeyFor(key), useGpu) }
+    fun setVoiceInputBackend(context: Context, locale: Locale, backend: Backend) {
+        val key = voiceInputPreferenceKey(context, locale)
+        runBlocking {
+            context.setSetting(FileKind.VoiceInput.backendPreferenceKeyFor(key), backend.name)
+        }
+    }
+
+    /**
+     * The voice input model that will actually be used for [locale], plus the
+     * backend it will run on. This is the single place that decides between a
+     * Qualcomm model and a whisper.cpp ggml model, so the settings UI and the
+     * voice input action can never disagree about which model is active.
+     */
+    fun resolveVoiceInputSelection(context: Context, locale: Locale): VoiceInputSelection {
+        val qnnModel = tryFindingQnnVoiceInputModelForLocale(context, locale)
+        val ggmlModel = tryFindingVoiceInputModelForLocale(context, locale)
+
+        val requested = getVoiceInputBackend(context, locale)
+            ?: BackendSupport.defaultBackend(context, ggmlModel != null, qnnModel != null)
+        val backend = BackendSupport.resolveBackend(
+            context, requested, ggmlModel != null, qnnModel != null
+        )
+
+        return VoiceInputSelection(backend, qnnModel, ggmlModel)
     }
 
     fun tryOpeningCustomMainDictionaryForLocale(context: Context, locale: Locale): ReadOnlyBinaryDictionary? {
@@ -925,6 +1004,7 @@ class ImportResourceActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             var qnnZipImportFailed = false
+            var genericImportFailed = false
             try {
                 withContext(Dispatchers.IO) {
                 // This is a special case for now
@@ -1011,11 +1091,21 @@ class ImportResourceActivity : ComponentActivity() {
                 }
             } catch (e: Exception) {
                 Log.e("ImportResource", "Model import failed", e)
-                qnnZipImportFailed = true
+                // Only the QNN-ZIP branch owns the QNN-specific error message.
+                // Any other kind (transformer / dictionary / ggml voice model)
+                // gets a generic message but still triggers a resource reload.
+                if (fileKind.kind == FileKind.VoiceInputQnnZip) {
+                    qnnZipImportFailed = true
+                } else {
+                    genericImportFailed = true
+                }
             }
             if (qnnZipImportFailed) {
                 Toast.makeText(applicationContext, R.string.file_kind_qnn_zip_invalid, Toast.LENGTH_LONG).show()
             } else {
+                if (genericImportFailed) {
+                    Toast.makeText(applicationContext, R.string.file_kind_import_invalid, Toast.LENGTH_LONG).show()
+                }
                 GlobalIMEMessage.tryEmit(IMEMessage.ReloadResources)
             }
             finish()

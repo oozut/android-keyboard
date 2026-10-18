@@ -31,6 +31,7 @@
 #include <cstring>
 #include <exception>
 #include <map>
+#include <mutex>
 #include <set>
 #include <string>
 #include <vector>
@@ -81,26 +82,68 @@ struct WhisperModelState {
     std::string last_error;
 };
 
-void log_capture(enum ggml_log_level level, const char* text, void* user_data) {
+// Process-global logging registry, installed once in JNI_OnLoad (see
+// log_router). The old design stored a raw per-model state pointer as the
+// logger's user_data, which dangled after close() and let a second model's
+// init steal the first model's error capture.
+std::mutex g_log_mutex;
+std::set<WhisperModelState*> g_live_states;
+WhisperModelState* g_log_target = nullptr;
+
+void log_router(enum ggml_log_level level, const char* text, void* /*user_data*/) {
     if (!text) return;
     if (level != GGML_LOG_LEVEL_ERROR && level != GGML_LOG_LEVEL_WARN) return;
-    auto* state = static_cast<WhisperModelState*>(user_data);
-    if (!state) return;
 
     std::string line(text);
     while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
     if (line.empty()) return;
 
+    // Replacing ggml's default logger silences it, so mirror the line to logcat.
+    __android_log_print(level == GGML_LOG_LEVEL_ERROR ? ANDROID_LOG_ERROR : ANDROID_LOG_WARN,
+                        LOG_TAG, "%s", line.c_str());
+
+    // Route to the engine currently loading/inferring. Holding the mutex while
+    // reading `last_error` makes close() (which removes the state under the same
+    // mutex before freeing) race-free: once removed, the router can no longer
+    // touch it.
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    auto* target = g_log_target;
+    if (!target || g_live_states.find(target) == g_live_states.end()) return;
+
     // Accumulate (capped) rather than keeping only the first message, so a
     // benign earlier warning can't mask the real failure (e.g. a Vulkan
     // out-of-device-memory error logged after a host-memory-type warning).
-    if (state->last_error.size() < kMaxErrorCapture) {
-        if (!state->last_error.empty()) state->last_error += "\n";
-        state->last_error += line;
-        if (state->last_error.size() > kMaxErrorCapture) {
-            state->last_error.resize(kMaxErrorCapture);
+    if (target->last_error.size() < kMaxErrorCapture) {
+        if (!target->last_error.empty()) target->last_error += "\n";
+        target->last_error += line;
+        if (target->last_error.size() > kMaxErrorCapture) {
+            target->last_error.resize(kMaxErrorCapture);
         }
     }
+}
+
+// Register a state and make it the log target for the duration of its (re)init.
+void registerState(WhisperModelState* state) {
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    g_live_states.insert(state);
+    g_log_target = state;
+}
+
+void setLogTarget(WhisperModelState* state) {
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    if (g_live_states.find(state) != g_live_states.end()) g_log_target = state;
+}
+
+void clearLogTarget(WhisperModelState* state) {
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    if (g_log_target == state) g_log_target = nullptr;
+}
+
+// Stop routing before the state is freed (close()).
+void unregisterState(WhisperModelState* state) {
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    g_live_states.erase(state);
+    if (g_log_target == state) g_log_target = nullptr;
 }
 
 // Trimmed error text used for logcat; only first 2000 chars kept sane.
@@ -131,7 +174,7 @@ jlong WhisperGGMLGpu_open(JNIEnv* env, jclass clazz, jstring model_path) {
 
     auto* state = new WhisperModelState();
 
-    whisper_log_set(log_capture, state);
+    registerState(state);
     AKLOGI("Attempting to load GPU model from file: %s", path.c_str());
 
     whisper_context_params cparams = whisper_context_default_params();
@@ -148,6 +191,7 @@ jlong WhisperGGMLGpu_open(JNIEnv* env, jclass clazz, jstring model_path) {
         AKLOGE("GPU init threw an unknown exception");
         state->last_error = "GPU init failed: unknown native exception";
     }
+    clearLogTarget(state);
     return open_impl(env, ctx, state);
 }
 
@@ -161,7 +205,7 @@ jlong WhisperGGMLGpu_openFromBuffer(JNIEnv* env, jclass clazz, jobject buffer) {
 
     auto* state = new WhisperModelState();
 
-    whisper_log_set(log_capture, state);
+    registerState(state);
     AKLOGI("Attempting to load GPU model from direct buffer (%lld bytes)", (long long)capacity);
 
     whisper_context_params cparams = whisper_context_default_params();
@@ -178,6 +222,7 @@ jlong WhisperGGMLGpu_openFromBuffer(JNIEnv* env, jclass clazz, jobject buffer) {
         AKLOGE("GPU init threw an unknown exception");
         state->last_error = "GPU init failed: unknown native exception";
     }
+    clearLogTarget(state);
     return open_impl(env, ctx, state);
 }
 
@@ -202,6 +247,7 @@ jstring WhisperGGMLGpu_infer(JNIEnv* env, jobject instance, jlong handle,
         jstring jstr = static_cast<jstring>(env->GetObjectArrayElement(languages, i));
         const int lang_id = whisper_lang_id(jstring2string(env, jstr).c_str());
         if (lang_id >= 0) state->allowed_languages.insert(lang_id);
+        if (jstr) env->DeleteLocalRef(jstr);
     }
 
     const int n_bail = bail_languages ? env->GetArrayLength(bail_languages) : 0;
@@ -209,6 +255,7 @@ jstring WhisperGGMLGpu_infer(JNIEnv* env, jobject instance, jlong handle,
         jstring jstr = static_cast<jstring>(env->GetObjectArrayElement(bail_languages, i));
         const int lang_id = whisper_lang_id(jstring2string(env, jstr).c_str());
         if (lang_id >= 0) state->forbidden_languages.insert(lang_id);
+        if (jstr) env->DeleteLocalRef(jstr);
     }
 
     const size_t num_samples = samples_array ? env->GetArrayLength(samples_array) : 0;
@@ -305,6 +352,7 @@ jstring WhisperGGMLGpu_infer(JNIEnv* env, jobject instance, jlong handle,
 
     AKLOGI("Calling whisper_full (gpu)");
     std::string output;
+    setLogTarget(state);
     try {
         const int res = whisper_full(state->context, wparams, samples, (int)num_samples);
         if (res != 0) {
@@ -327,6 +375,7 @@ jstring WhisperGGMLGpu_infer(JNIEnv* env, jobject instance, jlong handle,
         state->last_error = "GPU inference failed: unknown native exception";
         output.clear();
     }
+    clearLogTarget(state);
     env->ReleaseFloatArrayElements(samples_array, samples, JNI_ABORT);
 
     if (state->bail_language_id >= 0) {
@@ -342,6 +391,9 @@ jstring WhisperGGMLGpu_infer(JNIEnv* env, jobject instance, jlong handle,
 void WhisperGGMLGpu_close(JNIEnv* env, jclass clazz, jlong handle) {
     auto* state = reinterpret_cast<WhisperModelState*>(handle);
     if (!state) return;
+    // Deregister before freeing so the global log router can never follow a
+    // dangling pointer (previously a use-after-free after close()).
+    unregisterState(state);
     whisper_free(state->context);
     if (state->partial_result_instance) {
         env->DeleteGlobalRef(state->partial_result_instance);
@@ -400,6 +452,10 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {
     setenv("GGML_VK_DISABLE_COOPMAT", "1", 1);
     setenv("GGML_VK_DISABLE_COOPMAT2", "1", 1);
     AKLOGI("GPU workaround: GGML_VK_DISABLE_COOPMAT=1 (Adreno coopmat pipeline workaround)");
+
+    // Install the process-global ggml logger exactly once, routing through the
+    // live-state registry instead of a raw per-model state pointer.
+    whisper_log_set(log_router, nullptr);
 
     const char* const kClassPathName = "org/futo/voiceinput/shared/ggml/WhisperGGMLGpu";
     jclass clazz = env->FindClass(kClassPathName);

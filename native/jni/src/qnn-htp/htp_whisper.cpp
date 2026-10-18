@@ -401,7 +401,13 @@ static jintArray nativeTranscribe(JNIEnv* env, jobject, jlong jh, jshortArray jM
             std::vector<OrtValue*> outs(1 + 2 * L, nullptr);
             st = api->Run(h->dec, nullptr, inNames.data(), (const OrtValue* const*)inVals.data(),
                           inVals.size(), outNamesC.data(), outNamesC.size(), outs.data());
-            if (!check(api, st, "decoder Run")) { ok = false; break; }
+            if (!check(api, st, "decoder Run")) {
+                // Release whatever the runtime populated before it failed;
+                // otherwise the mid-loop failure path leaks every output value.
+                for (auto* o : outs) if (o) api->ReleaseValue(o);
+                ok = false;
+                break;
+            }
             steps++;
 
             for (int i = 0; i < 2 * L; i++) {

@@ -52,10 +52,9 @@ import org.futo.voiceinput.shared.RecognizerViewListener
 import org.futo.voiceinput.shared.RecognizerViewSettings
 import org.futo.voiceinput.shared.RecordingSettings
 import org.futo.voiceinput.shared.SoundPlayer
-import org.futo.voiceinput.shared.ggml.BackendSupport
+import org.futo.voiceinput.shared.ggml.Backend
 import org.futo.voiceinput.shared.types.Language
 import org.futo.voiceinput.shared.types.ModelLoader
-import org.futo.voiceinput.shared.types.ModelQnnFileFile
 import org.futo.voiceinput.shared.types.getLanguageFromWhisperString
 import org.futo.voiceinput.shared.ui.MicrophoneDeviceState
 import org.futo.voiceinput.shared.whisper.DecodingConfiguration
@@ -116,7 +115,7 @@ class VoiceInputPersistentState(val manager: KeyboardManagerForAction) : Persist
 
 private class VoiceInputActionWindow(
     val manager: KeyboardManagerForAction, val state: VoiceInputPersistentState,
-    val model: ModelLoader, val locales: List<Locale>
+    val model: ModelLoader, val locales: List<Locale>, val backend: Backend
 ) : ActionWindow(), RecognizerViewListener {
     val context = manager.getContext()
 
@@ -135,18 +134,11 @@ private class VoiceInputActionWindow(
         val primaryModel = model
         val languageSpecificModels = mutableMapOf<Language, ModelLoader>()
 
-        // Hardware acceleration is strictly opt-in per model assignment
-        // (default off) for ggml models. A QNN context binary inherently runs
-        // on the QNN backend, so it forces hardware acceleration on. The
-        // backend is resolved from the device type: QNN for Snapdragon,
-        // Vulkan/whisper.cpp for other Vulkan>=1.2 devices, CPU otherwise
-        // (Mali devices and anything without Vulkan fall back to CPU).
-        val preferHardware = ResourceHelper.getVoiceInputModelUseGpu(
-            context,
-            locales.firstOrNull() ?: Locale.ROOT
-        ) || primaryModel is ModelQnnFileFile
-        val backend = BackendSupport.resolveBackend(context, preferHardware)
-
+        // The backend was already resolved alongside the model (see
+        // ResourceHelper.resolveVoiceInputSelection): it is either the user's
+        // explicit CPU/Vulkan/QNN choice or the forced QNN backend of a
+        // Qualcomm model. A QNN model never reaches this window on a device
+        // that cannot run QNN without failing loudly in loadGGML first.
         val allowedLanguages = locales.mapNotNull { getLanguageFromWhisperString(it.language) }.toSet()
         val glossary = if(usePersonalDict) {
             state.userDictionaryObserver.getWords(locales).filter { it.shortcut.isNullOrEmpty() }.map { it.word }
@@ -326,22 +318,20 @@ val VoiceInputAction = Action(icon = R.drawable.mic_fill,
         val locales = manager.getActiveLocales()
         val locale = locales.firstOrNull() ?: Locale.ROOT
 
-        // Snapdragon devices are routed to QNN (the Vulkan/whisper.cpp path is
-        // broken on Adreno). If a QNN context binary is assigned for this
-        // locale, prefer it; otherwise fall back to the ggml model on CPU.
-        val model = if (BackendSupport.isSnapdragon()) {
-            ResourceHelper.tryFindingQnnVoiceInputModelForLocale(manager.getContext(), locale)
-                ?: ResourceHelper.tryFindingVoiceInputModelForLocale(manager.getContext(), locale)
-        } else {
-            ResourceHelper.tryFindingVoiceInputModelForLocale(manager.getContext(), locale)
-        }
+        // Single source of truth for "which model + backend runs for this
+        // locale". The settings page uses the same helper, so the two can never
+        // disagree. It honours the user's explicit CPU/Vulkan/QNN choice and
+        // always routes a Qualcomm model to QNN — which also fixes QNN ZIP
+        // models previously resolving to the CPU backend and failing to load.
+        val selection = ResourceHelper.resolveVoiceInputSelection(manager.getContext(), locale)
+        val model = selection.model
 
         if(model == null) {
-            VoiceInputNoModelWindow(locales.firstOrNull() ?: Locale.ROOT)
+            VoiceInputNoModelWindow(locale)
         } else {
             VoiceInputActionWindow(
                 manager = manager, state = persistentState as VoiceInputPersistentState,
-                locales = locales, model = model
+                locales = locales, model = model, backend = selection.backend
             )
         }
     }

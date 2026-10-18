@@ -96,7 +96,7 @@ are not used for offset-0 detection.
 ```
 preferHardware off  -> CPU
 Snapdragon          -> QNN     (Adreno; Vulkan path is known-broken here)
-Mali (Exynos/MTK)   -> CPU     (Mali; Vulkan path is known-broken here)
+Mali (Exynos/MTK)   -> VULKAN  (Mali untested, not known-broken — selectable for device testing)
 Vulkan >= 1.2       -> VULKAN  (whisper.cpp GPU path)
 otherwise           -> CPU
 ```

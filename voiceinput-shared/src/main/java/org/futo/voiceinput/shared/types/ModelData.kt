@@ -49,6 +49,25 @@ private fun loadGpuOrFallback(buffer: MappedByteBuffer): WhisperEngine {
         WhisperGGMLGpu(buffer)
     } catch (e: GpuUnavailableException) {
         WhisperGGML(buffer)
+    } catch (e: LinkageError) {
+        // The ABI gate ([BackendSupport.isArm64]) should have prevented this
+        // (libvoiceinput_gpu.so is arm64-v8a only), but if System.loadLibrary
+        // still fails we degrade to the CPU engine rather than crash.
+        WhisperGGML(buffer)
+    }
+}
+
+/**
+ * Builds a QNN engine, turning a missing/unloadable native library into a typed
+ * [GpuUnavailableException]. `UnsatisfiedLinkError` is a [LinkageError], which
+ * callers that only handle the three typed model-load failures would otherwise
+ * let escape and crash the app.
+ */
+private fun loadQnn(block: () -> WhisperEngine): WhisperEngine {
+    return try {
+        block()
+    } catch (e: LinkageError) {
+        throw GpuUnavailableException("QNN native library unavailable: ${e.message}")
     }
 }
 
@@ -58,8 +77,8 @@ private fun loadGpuOrFallback(buffer: MappedByteBuffer): WhisperEngine {
  * ggml models can only run on the CPU or Vulkan paths of whisper.cpp. If the
  * resolved backend is [Backend.QNN] (Snapdragon), a ggml model cannot use the
  * QNN engine — QNN requires a Qualcomm context binary instead — so it degrades
- * to the CPU path. Vulkan is deliberately not attempted on Snapdragon/Mali
- * because that path is known-broken on Adreno/Mali GPUs.
+ * to the CPU path. Vulkan is deliberately not offered on Adreno, whose driver
+ * rejects ggml's compute shaders; Mali is untested rather than known-broken.
  */
 private fun loadGgmlForBackend(buffer: MappedByteBuffer, backend: Backend): WhisperEngine {
     return when (backend) {
@@ -72,6 +91,14 @@ private fun loadGgmlForBackend(buffer: MappedByteBuffer, backend: Backend): Whis
 interface ModelLoader {
     @get:StringRes
     val name: Int
+
+    /**
+     * Backend this model *must* run on, or `null` when it can run on any backend
+     * that consumes ggml models ([Backend.CPU] / [Backend.VULKAN]). Qualcomm
+     * models override this with [Backend.QNN], which lets the app route them
+     * correctly without having to special-case each loader type.
+     */
+    val requiredBackend: Backend? get() = null
 
     fun exists(context: Context): Boolean
     fun getRequiredDownloadList(context: Context): List<String>
@@ -167,20 +194,22 @@ public class ModelFileFile(
 }
 
 /**
- * Loader for a Qualcomm QNN context binary (a `.qnn.bin` produced by
- * `qnn-context-binary-generator`). These files are NOT ggml models and can only
- * run on Snapdragon devices through the QNN engine — there is no CPU/Vulkan
- * fallback for them.
+ * Loader for a standalone Qualcomm QNN context binary (a `.qnn.bin` produced by
+ * `qnn-context-binary-generator`).
  *
- * Until the decoder graph is convertible (blocked on the `LessOrEqual`
- * causal-mask op), [QnnWhisperEngine] throws [GpuUnavailableException] when
- * constructed, which surfaces as a clean "hardware acceleration unavailable"
- * message instead of crashing or misreporting a corrupt model.
+ * The QNN engine runs Whisper's encoder and decoder as two separate ONNX
+ * Runtime sessions, so a single context binary cannot drive it: there is no way
+ * to split one `.qnn.bin` back into the two graphs. This loader therefore fails
+ * with a clear message pointing at the `precompiled_qnn_onnx` archive that
+ * [ModelQnnZip] handles. It is kept as a distinct type because the importer
+ * still recognizes the file kind, but it is never expected to load.
  */
 public class ModelQnnFileFile(
     override val name: Int,
     val file: File,
 ) : ModelLoader {
+    override val requiredBackend: Backend? get() = Backend.QNN
+
     override fun exists(context: Context): Boolean {
         return file.exists()
     }
@@ -190,13 +219,16 @@ public class ModelQnnFileFile(
     }
 
     override fun loadGGML(context: Context, backend: Backend): WhisperEngine {
-        if (backend != Backend.QNN) {
+        if (backend != requiredBackend) {
             throw GpuUnavailableException(
                 "QNN context binary requires a Snapdragon device (resolved ${backend.name})"
             )
         }
 
-        return QnnWhisperEngine(context, file, file)
+        throw GpuUnavailableException(
+            "A single QNN context binary cannot be split into the encoder/decoder " +
+                "ONNX graphs this engine runs; import the precompiled_qnn_onnx ZIP instead"
+        )
     }
 
     override fun key(context: Context): Any {
@@ -217,6 +249,8 @@ public class ModelQnnZip(
     val encoderOnnxFile: File,
     val decoderOnnxFile: File,
 ) : ModelLoader {
+    override val requiredBackend: Backend? get() = Backend.QNN
+
     override fun exists(context: Context): Boolean {
         return encoderOnnxFile.exists() && decoderOnnxFile.exists()
     }
@@ -226,13 +260,13 @@ public class ModelQnnZip(
     }
 
     override fun loadGGML(context: Context, backend: Backend): WhisperEngine {
-        if (backend != Backend.QNN) {
+        if (backend != requiredBackend) {
             throw GpuUnavailableException(
                 "QNN context binaries require a Snapdragon device (resolved ${backend.name})"
             )
         }
 
-        return QnnWhisperEngine(context, encoderOnnxFile, decoderOnnxFile)
+        return loadQnn { QnnWhisperEngine(context, encoderOnnxFile, decoderOnnxFile) }
     }
 
     override fun key(context: Context): Any {

@@ -337,9 +337,22 @@
     <string name="language_settings_resource_remove_button">Remove</string>
     <string name="language_settings_resource_explore_online_button">Explore</string>
 
-    <!-- Hardware-acceleration toggle for the per-language voice input model -->
-    <string name="language_settings_voice_input_hw_accel_toggle">Use hardware acceleration</string>
-    <string name="language_settings_voice_input_hw_accel_toggle_subtitle">Faster transcription, but uses more memory</string>
+    <!-- Hardware-acceleration backend picker for the per-language voice input model.
+         Only backends the device can actually run are offered (see BackendSupport). -->
+    <string name="language_settings_voice_input_backend_title">Transcription backend</string>
+    <string name="voice_input_backend_cpu">CPU</string>
+    <string name="voice_input_backend_vulkan">Vulkan</string>
+    <string name="voice_input_backend_qnn">QNN</string>
+    <string name="voice_input_backend_cpu_description">Runs on the main processor. Most compatible, but slowest.</string>
+    <string name="voice_input_backend_vulkan_description">Runs on the GPU through Vulkan. Faster, but uses more memory.</string>
+    <string name="voice_input_backend_vulkan_experimental">Experimental: Vulkan transcription is known to crash on Adreno GPUs.</string>
+    <string name="voice_input_backend_vulkan_unavailable">Vulkan transcription cannot run on this device: it needs a Vulkan 1.2 driver with 16-bit storage and compute support.</string>
+    <string name="voice_input_backend_qnn_description">Runs on the Qualcomm Hexagon NPU. Fastest, but Snapdragon only.</string>
+    <string name="voice_input_backend_no_ggml_model">No voice input model this backend can run is assigned for this language.</string>
+    <string name="voice_input_backend_qnn_no_model">QNN needs an imported Qualcomm voice input model, and this language has none.</string>
+    <string name="language_settings_voice_input_backend_qnn_unavailable_not_qualcomm">A Qualcomm (QNN) voice input model is assigned, but this device cannot run it. QNN requires a Snapdragon processor.</string>
+    <string name="language_settings_voice_input_backend_qnn_unavailable_chipset">A Qualcomm (QNN) voice input model is assigned, but this Snapdragon chipset is not one Qualcomm publishes Whisper assets for, so it cannot run it.</string>
+    <string name="language_settings_voice_input_backend_qnn_unavailable">A Qualcomm (QNN) voice input model is assigned, but this build cannot run it.</string>
 
     <string name="language_settings_remove_language_title">Delete %1$s?</string>
     <string name="language_settings_remove_language_body">Remove %1$s, all of its associated layouts and custom resources?</string>
@@ -361,6 +374,7 @@
     <string name="file_kind_transformer_model">Transformer Model</string>
     <string name="file_kind_dictionary">Dictionary</string>
     <string name="file_kind_invalid_file">Invalid file</string>
+    <string name="file_kind_import_invalid">The file could not be imported. It may be invalid or corrupted.</string>
     <string name="file_kind_cfg_backup">Configuration Backup</string>
     <string name="resource_importer_import_title">Import - %1$s</string>
     <string name="resource_importer_error_wordlist_1">Error: This file appears to be a source wordlist (_wordlist.combined) instead of a compiled dictionary (.dict) file.</string>

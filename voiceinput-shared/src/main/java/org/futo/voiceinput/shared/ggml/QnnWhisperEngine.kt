@@ -37,6 +37,9 @@ class QnnWhisperEngine(
         private const val TRANSCRIBE = 50360     // <|transcribe|>
         private const val NOTIMESTAMPS = 50364   // <|notimestamps|>
         private const val LANG_FIRST = 50259     // <|en|>; 100 language tokens follow
+        // <|endoftext|>: the first control token. BPE *content* tokens are
+        // 0..EOT-1, so only those are eligible for the decoder prompt.
+        private const val EOT = 50257
 
         // ISO 639-1 code -> index into the whisper language-token block
         // (token id = LANG_FIRST + index). Order matches whisper.cpp g_lang.
@@ -71,6 +74,26 @@ class QnnWhisperEngine(
 
     // Whisper large-v3-turbo detokenizer vocab (base64 UTF-8 bytes per id).
     private val vocab: Array<ByteArray>
+
+    private class PromptVocab(val byText: Map<String, Int>, val maxBytes: Int)
+
+    /**
+     * Byte-level BPE vocabulary as ISO-8859-1 strings (1 char per byte), so the
+     * initial prompt / glossary can be tokenized by greedy longest match. Only
+     * content tokens (`id < EOT`) are indexed, so a control token can never be
+     * emitted into the decoder prompt. Built lazily: the CPU path never uses it.
+     */
+    private val promptVocab: PromptVocab by lazy {
+        val byText = HashMap<String, Int>()
+        var maxBytes = 0
+        for (id in 0 until minOf(EOT, vocab.size)) {
+            val bytes = vocab[id]
+            if (bytes.isEmpty()) continue
+            val key = String(bytes, Charsets.ISO_8859_1)
+            if (byText.putIfAbsent(key, id) == null) maxBytes = maxOf(maxBytes, bytes.size)
+        }
+        PromptVocab(byText, maxBytes)
+    }
 
     init {
         // The HTP stub locates its Skel library via ADSP_LIBRARY_PATH; without
@@ -123,14 +146,51 @@ class QnnWhisperEngine(
     }
 
     /**
-     * Builds the decoder prompt. The QNN decoder is non-streaming, so the
-     * language is picked up front (no whisper.cpp-style language auto-detect
-     * pass yet): the first allowed language wins, English if none is given.
+     * Greedy longest-match tokenization of [prompt] against the byte-level BPE
+     * vocabulary. This is not whisper's merge-rank BPE (the vocab asset carries
+     * no merges), but it maps the personal-dictionary glossary to valid content
+     * tokens instead of dropping it, which is what the CPU path seeds the
+     * decoder with. Bytes with no single-token match are skipped defensively.
      */
-    private fun buildPrompt(languages: Array<String>): IntArray {
+    private fun tokenizePrompt(prompt: String): IntArray {
+        if (prompt.isEmpty()) return IntArray(0)
+        val vocab = promptVocab
+        if (vocab.byText.isEmpty()) return IntArray(0)
+
+        val text = String(prompt.toByteArray(Charsets.UTF_8), Charsets.ISO_8859_1)
+        val ids = ArrayList<Int>()
+        var i = 0
+        while (i < text.length) {
+            var length = minOf(vocab.maxBytes, text.length - i)
+            var matched = false
+            while (length >= 1) {
+                val id = vocab.byText[text.substring(i, i + length)]
+                if (id != null) {
+                    ids.add(id)
+                    i += length
+                    matched = true
+                    break
+                }
+                length--
+            }
+            if (!matched) i++
+        }
+        return ids.toIntArray()
+    }
+
+    /**
+     * Builds the decoder prompt: the fixed task prefix (`<|sot|>` + language +
+     * `<|transcribe|>` + `<|notimestamps|>`) followed by the tokenized initial
+     * prompt / glossary, matching how whisper.cpp seeds `initial_prompt`. The
+     * QNN decoder is non-streaming, so the language is picked up front (no
+     * whisper.cpp-style language auto-detect pass yet): the first allowed
+     * language wins, English if none is given.
+     */
+    private fun buildPrompt(languages: Array<String>, prompt: String): IntArray {
         val code = languages.firstOrNull() ?: "en"
         val langToken = LANG_FIRST + (LANG_INDEX[code] ?: 0)
-        return intArrayOf(SOT, langToken, TRANSCRIBE, NOTIMESTAMPS)
+        val specials = intArrayOf(SOT, langToken, TRANSCRIBE, NOTIMESTAMPS)
+        return specials + tokenizePrompt(prompt)
     }
 
     @Keep
@@ -138,6 +198,16 @@ class QnnWhisperEngine(
         partialResultCallback(text.trim())
     }
 
+    /**
+     * Runs QNN inference for one 30-second window.
+     *
+     * [prompt] (the personal-dictionary glossary) is tokenized into the decoder
+     * seed. The precompiled QNN graph is greedy and single-language, so
+     * [bailLanguages] (cross-model language switching) and [decodingMode] (beam
+     * search) are not honoured here — they only take effect on the ggml path —
+     * and [suppressNonSpeechTokens] is fixed by the graph. These limitations are
+     * explicit rather than silent: see `GPU_REVIEW_RECOMMENDATIONS.md`.
+     */
     override suspend fun infer(
         samples: FloatArray,
         prompt: String,
@@ -153,7 +223,7 @@ class QnnWhisperEngine(
         this@QnnWhisperEngine.partialResultCallback = partialResultCallback
         cancelled = false
 
-        val promptIds = buildPrompt(languages)
+        val promptIds = buildPrompt(languages, prompt)
         val mel = nativeMel(samples)
             ?: throw InvalidModelException()
 
