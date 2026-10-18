@@ -1,0 +1,24 @@
+{
+  "cli_version": "0.11.5",
+  "checkpoint_id": "01M586DEW7F79766GX2DNXNJTC",
+  "session_id": "01a15058-d392-774a-8ba8-718ae8d14a74",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-18T19:04:33.118380145Z",
+  "branch": "GPUEnablement",
+  "checkpoints_count": 1,
+  "files_touched": [
+    ".gitignore",
+    "java/src/org/futo/inputmethod/latin/uix/ImportResourceActivity.kt"
+  ],
+  "agent": "Pi",
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "turn_id": "d54e53a5f94f",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 174245,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1511296,
+    "output_tokens": 17228,
+    "api_call_count": 43
+  }
+}
