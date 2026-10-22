@@ -154,6 +154,52 @@ system lib on Snapdragon and is declared in the manifest as
    `QnnContext_createFromBinary`. More control (matches how
    `whisper-htp-android` works) but more build work.
 
+## Long audio (>30 s): overlapping-chunk decoding
+
+The precompiled graph is a single 30 s window: `whisper_mel.cpp` clamps the input
+to `SAMPLES_30S` (480 000 samples / 3000 mel frames) and the encoder input tensor
+is the fixed `{1, melBins, 3000}`. Before chunking, any audio past 30 s was
+dropped with no log line and no UI signal, while the recorder happily grew to
+minutes (`CAN_EXPAND_SPACE`, long-form voice input).
+
+`QnnWhisperEngine.infer` now plans 29 s windows with a 5 s overlap
+(`LongFormChunking.planChunks`) and decodes them one by one, stitching the
+results with `LongFormChunking.mergeOverlap`:
+
+| audio | chunks (29 s window, 5 s overlap) |
+| --- | --- |
+| ≤ 29 s | 1, identical to the old single-shot path |
+| 30 s | 29 s + 6 s |
+| 60 s | 29 s + 29 s + 12 s |
+| 2 min | 5 |
+| 5 min | 13 |
+| 10 min | 25 |
+
+De-duplication is a longest-suffix/prefix *word* match between the accumulated
+transcript and the newly decoded chunk (case-insensitive, ignoring surrounding
+punctuation, CJK compared per character, capped at ~20 words = 5 s × 4 words/s
+so a legitimately repeated phrase is not collapsed). If no overlap is found the
+texts are concatenated as-is — a duplicated word is easier to fix than words
+silently removed from the middle of a sentence. One case is repaired rather than
+duplicated: when the window boundary cuts a word in half, the previous chunk ends
+with a fragment ("… more inform") which shifts every later word out of
+alignment, so the fragment is dropped and the match retried, leaving the complete
+word from the next chunk ("… more information").
+
+Notes:
+
+- The HTP decoder cannot stream, so the recognizer now gets one partial result
+  per finished chunk (`invokePartialResult`), which is the first non-empty
+  use of that callback on this backend.
+- `htp_whisper.cpp` releases the encoder cross-attention K/V after every window
+  (`releaseCross`). The next encoder `Run` overwrites `h->cross` without freeing
+  what was there, so reusing one handle for N chunks — or for N dictations,
+  which `ModelManager`'s engine cache already did — leaked a full cross-cache
+  set each time.
+- Still capped per window: `WINDOW = 200` / `CACHE = 199` in `htp_whisper.cpp`
+  limit a single 29 s chunk to ~196 output tokens, so unusually dense speech can
+  still be cut mid-sentence.
+
 ## What remains before QNN can actually transcribe
 
 1. Decoder SHA re-architecture (see top) so the causal mask no longer relies on

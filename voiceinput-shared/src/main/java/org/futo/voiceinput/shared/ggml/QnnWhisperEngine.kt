@@ -18,8 +18,13 @@ import java.io.File
  * fixed-shape KV-cache greedy decode loop (see native/jni/src/qnn-htp/).
  *
  * The model is a single-shot 30-second window (not the streaming VAD loop the
- * CPU engine uses): [infer] pads/truncates its PCM to 30 s, runs encoder + a
- * greedy decode seeded with the prompt, and detokenizes the result.
+ * CPU engine uses): the mel front end pads/truncates its PCM to 30 s, runs
+ * encoder + a greedy decode seeded with the prompt, and detokenizes the result.
+ *
+ * Because that window is a hard limit of the precompiled graph, [infer] decodes
+ * long recordings in 29 s chunks with a 5 s overlap and de-duplicates the
+ * overlapping text (see [LongFormChunking]); everything past 30 s used to be
+ * dropped silently.
  */
 @Keep
 class QnnWhisperEngine(
@@ -31,6 +36,14 @@ class QnnWhisperEngine(
     companion object {
         private const val VARIANT_TURBO_W8A16 = 2
         private const val MEL_BINS = 128
+
+        /**
+         * Long-form chunking. Mirrors [LongFormChunking]'s defaults: the graph
+         * only accepts 30 s of mel, so decode 29 s at a time and overlap by 5 s
+         * to keep words on the boundary intact.
+         */
+        private const val CHUNK_SAMPLES = LongFormChunking.DEFAULT_CHUNK_SAMPLES
+        private const val OVERLAP_SAMPLES = LongFormChunking.DEFAULT_OVERLAP_SAMPLES
 
         // Whisper large-v3 vocab special tokens (DIFFER from the v2/small ids).
         private const val SOT = 50258            // <|startoftranscript|>
@@ -199,7 +212,9 @@ class QnnWhisperEngine(
     }
 
     /**
-     * Runs QNN inference for one 30-second window.
+     * Runs QNN inference over [samples], in 29 s chunks with a 5 s overlap for
+     * anything longer than one window (see [LongFormChunking]); the overlapping
+     * text is de-duplicated while the chunks are stitched together.
      *
      * [prompt] (the personal-dictionary glossary) is tokenized into the decoder
      * seed. The precompiled QNN graph is greedy and single-language, so
@@ -223,19 +238,57 @@ class QnnWhisperEngine(
         this@QnnWhisperEngine.partialResultCallback = partialResultCallback
         cancelled = false
 
+        if (samples.isEmpty()) return@withContext ""
+
         val promptIds = buildPrompt(languages, prompt)
-        val mel = nativeMel(samples)
-            ?: throw InvalidModelException()
+        val chunks = LongFormChunking.planChunks(samples.size, CHUNK_SAMPLES, OVERLAP_SAMPLES)
+        val maxOverlapWords = LongFormChunking.maxOverlapWords(OVERLAP_SAMPLES)
 
-        val metrics = FloatArray(2)
-        val tokens = nativeTranscribe(handle, mel, promptIds, metrics)
+        // Reused across chunks to keep a multi-minute dictation from allocating
+        // ~2 MB per 29 s window.
+        val pcmBuffer = FloatArray(minOf(CHUNK_SAMPLES, samples.size))
+        var transcript = ""
 
-        if (tokens == null) {
+        for (chunk in chunks) {
             if (cancelled) throw InferenceCancelledException()
-            throw InvalidModelException()
+
+            val pcm = when {
+                // Short recording: hand the recorded buffer straight through.
+                chunk.start == 0 && chunk.length == samples.size -> samples
+                chunk.length == pcmBuffer.size -> pcmBuffer
+                else -> FloatArray(chunk.length)
+            }
+            if (pcm !== samples) {
+                System.arraycopy(samples, chunk.start, pcm, 0, chunk.length)
+            }
+
+            val mel = nativeMel(pcm)
+            if (mel == null) {
+                if (cancelled) throw InferenceCancelledException()
+                throw InvalidModelException()
+            }
+
+            val tokens = nativeTranscribe(handle, mel, promptIds, FloatArray(2))
+            if (tokens == null) {
+                if (cancelled) throw InferenceCancelledException()
+                throw InvalidModelException()
+            }
+
+            val text = detokenize(tokens).trim()
+            if (text.isEmpty()) continue
+
+            transcript = LongFormChunking.mergeOverlap(transcript, text, maxOverlapWords)
+
+            // The HTP decoder is not streaming, so the only progress we can
+            // report is one update per finished chunk. Skip it for short
+            // recordings, where the final result arrives immediately after.
+            if (chunks.size > 1) {
+                invokePartialResult(transcript)
+            }
         }
 
-        detokenize(tokens).trim()
+        if (cancelled) throw InferenceCancelledException()
+        transcript.trim()
     }
 
     override fun cancel() {

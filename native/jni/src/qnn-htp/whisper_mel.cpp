@@ -10,6 +10,7 @@
 // Exposed as plain C++ (no JNI) so the JNI surface lives entirely in
 // htp_whisper.cpp, mirroring the original whisper-htp-android split (MIT).
 
+#include <android/log.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -17,6 +18,8 @@
 #include <thread>
 #include <mutex>
 #include <vector>
+
+#define MEL_TAG "QnnWhisperMel"
 
 namespace mel {
 
@@ -111,6 +114,13 @@ bool compute(const float* pcm, size_t nSamples, int nMel, int16_t* out) {
     if (g_filters.empty() || nMel != g_nmel) return false;
 
     size_t n = nSamples > (size_t)SAMPLES_30S ? (size_t)SAMPLES_30S : nSamples;
+    if (nSamples > (size_t)SAMPLES_30S) {
+        // QnnWhisperEngine.infer decodes in 29 s windows, so this should never
+        // fire; if it does, audio is being dropped without anyone noticing.
+        __android_log_print(ANDROID_LOG_WARN, MEL_TAG,
+                            "input %zu samples exceeds the 30 s window (%d): audio will be truncated",
+                            nSamples, SAMPLES_30S);
+    }
 
     // Zero-pad to 30s, then reflect-pad n_fft/2 for center=True.
     const int PAD = N_FFT / 2;

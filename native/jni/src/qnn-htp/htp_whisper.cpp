@@ -143,11 +143,23 @@ void resetSelfKV(Handle* h) {
     }
 }
 
+// The encoder output cross-attention caches are per-segment state. The engine
+// reuses one handle for several segments (long-form chunking in
+// QnnWhisperEngine.infer), and the next encoder Run overwrites h->cross without
+// freeing what was there, so drop them once the decoder is done with them.
+void releaseCross(Handle* h) {
+    for (auto*& v : h->cross) {
+        if (v) {
+            h->api->ReleaseValue(v);
+            v = nullptr;
+        }
+    }
+}
+
 void destroy(Handle* h) {
     if (!h) return;
     if (h->api) {
-        for (auto*& v : h->cross)
-            if (v) h->api->ReleaseValue(v);
+        releaseCross(h);
         if (h->mem) h->api->ReleaseMemoryInfo(h->mem);
         if (h->enc) h->api->ReleaseSession(h->enc);
         if (h->dec) h->api->ReleaseSession(h->dec);
@@ -303,7 +315,10 @@ static jintArray nativeTranscribe(JNIEnv* env, jobject, jlong jh, jshortArray jM
                              encOut.data(), encOut.size(), h->cross);
     clock_gettime(CLOCK_MONOTONIC, &ts1);
     api->ReleaseValue(melVal);
-    if (!check(api, st, "encoder Run")) return nullptr;
+    if (!check(api, st, "encoder Run")) {
+        releaseCross(h);  // a partially written cross cache must not survive the call
+        return nullptr;
+    }
     double encMs = (ts1.tv_sec - ts0.tv_sec) * 1e3 + (ts1.tv_nsec - ts0.tv_nsec) / 1e6;
     LOGI("encoder: %.1f ms on HTP", encMs);
 
@@ -476,6 +491,7 @@ static jintArray nativeTranscribe(JNIEnv* env, jobject, jlong jh, jshortArray jM
         bool isCross = i >= (size_t)(2 + 2 * L) && i < (size_t)(2 + 4 * L);
         if (!isCross && inVals[i]) api->ReleaseValue(inVals[i]);
     }
+    releaseCross(h);
     if (!ok) return nullptr;
 
     float avgProb = probCount ? (float)(probSum / probCount) : 0.0f;

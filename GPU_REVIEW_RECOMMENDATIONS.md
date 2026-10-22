@@ -68,9 +68,32 @@
 
 ---
 
+- [x] **5. Decode long audio in overlapping chunks on the QNN backend (silent 30 s truncation).**
+  - Where: `voiceinput-shared/.../ggml/QnnWhisperEngine.kt` (`infer`), new
+    `voiceinput-shared/.../ggml/LongFormChunking.kt`, `native/jni/src/qnn-htp/htp_whisper.cpp`
+    (`releaseCross`).
+  - Problem: the HTP graph accepts exactly one 30 s window — `whisper_mel.cpp`
+    clamps `nSamples` to `SAMPLES_30S` (480 000) and the encoder input is the fixed
+    `{1, melBins, 3000}` tensor — so everything past 30 s was dropped with no log
+    line and no UI feedback, while the recorder (long-form voice input) kept
+    growing the buffer to minutes.
+  - Change: `infer` plans 29 s windows with a 5 s overlap (`LongFormChunking.planChunks`),
+    runs mel + encoder + greedy decode per window, and stitches the transcripts with
+    `mergeOverlap`, which removes the words duplicated by the overlap (longest
+    suffix/prefix word match, case- and punctuation-insensitive, CJK per character,
+    capped at ~20 words). Recordings ≤ 29 s keep the old single-shot path exactly.
+    One partial result is emitted per finished chunk (the HTP decoder cannot stream),
+    and the encoder cross-attention caches are released after each window — the next
+    encoder `Run` overwrote `h->cross` without freeing it, which also leaked one
+    cross-cache set per dictation on a cached engine handle.
+  - Remaining: the 200-slot decoder window (`WINDOW`/`CACHE`) still caps a chunk at
+    ~196 tokens, so dense speech can be cut mid-sentence.
+
+---
+
 ## P1 — Feature parity & UX
 
-- [x] **5. Wire the glossary / prompt into the QNN decoder (or disable it explicitly).**
+- [x] **6. Wire the glossary / prompt into the QNN decoder (or disable it explicitly).**
   - Where: `voiceinput-shared/.../ggml/QnnWhisperEngine.kt:130-161`
   - Problem: `buildPrompt(languages)` ignores the `prompt` argument, so the
     personal-dictionary glossary that the CPU path honours is silently dropped.
@@ -80,7 +103,7 @@
     at minimum disable/annotate the glossary UI for QNN models so the gap is not
     silent.
 
-- [x] **6. Resolve the single-file QNN loader.**
+- [x] **7. Resolve the single-file QNN loader.**
   - Where: `voiceinput-shared/.../types/ModelData.kt:199`
   - Problem: `QnnWhisperEngine(context, file, file)` uses the same file as both
     encoder and decoder session — almost certainly non-functional for a single
@@ -90,7 +113,7 @@
     `FileKind.VoiceInputQnn` path, or remove `ModelQnnFileFile` /
     `FileKind.VoiceInputQnn` to shrink the surface.
 
-- [x] **7. Fix the misleading hardware-acceleration switch on Snapdragon.**
+- [x] **8. Fix the misleading hardware-acceleration switch on Snapdragon.**
   - Where: `java/src/.../settings/pages/Languages.kt:420`,
     `voiceinput-shared/.../ggml/BackendSupport.kt:78-88`
   - Problem: the toggle is shown whenever Vulkan ≥ 1.2 (Snapdragon qualifies), but
@@ -99,7 +122,7 @@
   - Recommended change: hide the toggle where it cannot take effect, or show the
     resolved backend in the subtitle.
 
-- [x] **8. Make `ModelManager` thread-safe.**
+- [x] **9. Make `ModelManager` thread-safe.**
   - Where: `voiceinput-shared/.../whisper/ModelManager.kt:17-22` (+ `preload()` in
     `MultiModelRunner.kt`)
   - Problem: unsynchronized `HashMap` mutated by parallel `Dispatchers.Default`
@@ -110,7 +133,7 @@
 
 ## P2 — Native hygiene
 
-- [x] **9. QNN decode-loop cleanups** (`native/jni/src/qnn-htp/htp_whisper.cpp`):
+- [x] **10. QNN decode-loop cleanups** (`native/jni/src/qnn-htp/htp_whisper.cpp`):
   - Release `outs` OrtValues on the mid-loop `check()` failure path (currently
     leaked).
   - `DeleteLocalRef` the `GetObjectArrayElement` references for languages/bail.
