@@ -44,6 +44,8 @@ constexpr int CACHE = 199;
 constexpr int HEAD_DIM = 64;
 constexpr int MAX_LAYERS = 12;
 constexpr int EOT = 50257;  // same in v2 and v3 vocabs; also the argmax cutoff
+constexpr int LANG_FIRST = 50259;  // <|en|>; language tokens follow
+constexpr int AUTO_DETECT_LANGUAGE = -1;  // prompt sentinel filled from <|sot|> logits
 
 struct ModelCfg {
     int layers;
@@ -271,7 +273,8 @@ static jshortArray nativeMel(JNIEnv* env, jobject, jfloatArray jPcm) {
 }
 
 static jintArray nativeTranscribe(JNIEnv* env, jobject, jlong jh, jshortArray jMel,
-                                  jintArray jPrompt, jfloatArray jMetrics) {
+                                  jintArray jPrompt, jintArray jLanguageTokens,
+                                  jfloatArray jMetrics) {
     auto* h = reinterpret_cast<Handle*>(jh);
     if (!h) return nullptr;
     const OrtApi* api = h->api;
@@ -326,6 +329,10 @@ static jintArray nativeTranscribe(JNIEnv* env, jobject, jlong jh, jshortArray jM
     jsize promptLen = env->GetArrayLength(jPrompt);
     std::vector<int32_t> prompt(promptLen);
     env->GetIntArrayRegion(jPrompt, 0, promptLen, prompt.data());
+
+    jsize languageTokenLen = env->GetArrayLength(jLanguageTokens);
+    std::vector<int32_t> languageTokens(languageTokenLen);
+    env->GetIntArrayRegion(jLanguageTokens, 0, languageTokenLen, languageTokens.data());
 
     resetSelfKV(h);
     const uint16_t maskOff = cfg.fp16 ? fp16Bits(-100.0f) : MASK_OFF_U16;
@@ -397,6 +404,7 @@ static jintArray nativeTranscribe(JNIEnv* env, jobject, jlong jh, jshortArray jM
     for (auto& s : outNameStore) outNamesC.push_back(s.c_str());
 
     std::vector<int32_t> generated;
+    int detectedLanguageToken = AUTO_DETECT_LANGUAGE;
     double decTotalMs = 0;
     int steps = 0;
     double probSum = 0;
@@ -408,7 +416,16 @@ static jintArray nativeTranscribe(JNIEnv* env, jobject, jlong jh, jshortArray jM
         clock_gettime(CLOCK_MONOTONIC, &ts0);
         for (int step = 0; step < WINDOW - 1; step++) {
             if (h->cancelRequested.load()) { ok = false; break; }
-            h->inputId = (step < promptLen) ? prompt[step] : generated.back();
+            if (step < promptLen) {
+                h->inputId = prompt[step];
+                if (h->inputId == AUTO_DETECT_LANGUAGE) {
+                    h->inputId = detectedLanguageToken >= 0
+                                     ? detectedLanguageToken
+                                     : (languageTokens.empty() ? LANG_FIRST : languageTokens[0]);
+                }
+            } else {
+                h->inputId = generated.back();
+            }
             h->positionId = step;
             // Right-aligned attention window: current token at slot 199.
             h->mask[WINDOW - 1 - step] = maskAttend;
@@ -450,6 +467,26 @@ static jintArray nativeTranscribe(JNIEnv* env, jobject, jlong jh, jshortArray jM
                     lns = exp(((int)logits[cfg.noSpeechId] - (int)mx) * cfg.logitsScale);
                 }
                 noSpeechProb = (float)(lns / denom);
+
+                // Whisper picks the language from the logits that follow
+                // <|startoftranscript|>; step 0 is exactly that position, so
+                // reuse it instead of paying for a separate detection pass.
+                if (!languageTokens.empty()) {
+                    int best = languageTokens[0];
+                    if (cfg.fp16) {
+                        float bestV = fromFp16(logits[best]);
+                        for (int id : languageTokens) {
+                            float v = fromFp16(logits[id]);
+                            if (v > bestV) { bestV = v; best = id; }
+                        }
+                    } else {
+                        uint16_t bestV = logits[best];
+                        for (int id : languageTokens) {
+                            if (logits[id] > bestV) { bestV = logits[id]; best = id; }
+                        }
+                    }
+                    detectedLanguageToken = best;
+                }
             }
             if (step >= promptLen - 1) {
                 void* ldata = nullptr;
@@ -495,9 +532,9 @@ static jintArray nativeTranscribe(JNIEnv* env, jobject, jlong jh, jshortArray jM
     if (!ok) return nullptr;
 
     float avgProb = probCount ? (float)(probSum / probCount) : 0.0f;
-    LOGI("decoder: %d steps in %.1f ms (%.1f ms/token), %zu tokens, avg_p=%.3f no_speech=%.3f",
+    LOGI("decoder: %d steps in %.1f ms (%.1f ms/token), %zu tokens, avg_p=%.3f no_speech=%.3f lang=%d",
          steps, decTotalMs, steps ? decTotalMs / steps : 0.0, generated.size(), avgProb,
-         noSpeechProb);
+         noSpeechProb, detectedLanguageToken);
     if (jMetrics && env->GetArrayLength(jMetrics) >= 2) {
         env->SetFloatArrayRegion(jMetrics, 0, 1, &avgProb);
         env->SetFloatArrayRegion(jMetrics, 1, 1, &noSpeechProb);
@@ -518,7 +555,7 @@ static JNINativeMethod sMethods[] = {
     {"nativeLastError", "()Ljava/lang/String;", (void*)nativeLastError},
     {"nativeMelInit", "(Ljava/lang/String;I)Z", (void*)nativeMelInit},
     {"nativeMel", "([F)[S", (void*)nativeMel},
-    {"nativeTranscribe", "(J[S[I[F)[I", (void*)nativeTranscribe},
+    {"nativeTranscribe", "(J[S[I[I[F)[I", (void*)nativeTranscribe},
 };
 
 extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved) {

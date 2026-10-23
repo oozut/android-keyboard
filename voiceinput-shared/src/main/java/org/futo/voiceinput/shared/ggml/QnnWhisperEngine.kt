@@ -50,6 +50,8 @@ class QnnWhisperEngine(
         private const val TRANSCRIBE = 50360     // <|transcribe|>
         private const val NOTIMESTAMPS = 50364   // <|notimestamps|>
         private const val LANG_FIRST = 50259     // <|en|>; 100 language tokens follow
+        /** Prompt sentinel: the native decoder detects the language from <|sot|> logits. */
+        private const val AUTO_DETECT_LANGUAGE = -1
         // <|endoftext|>: the first control token. BPE *content* tokens are
         // 0..EOT-1, so only those are eligible for the decoder prompt.
         private const val EOT = 50257
@@ -194,16 +196,32 @@ class QnnWhisperEngine(
     /**
      * Builds the decoder prompt: the fixed task prefix (`<|sot|>` + language +
      * `<|transcribe|>` + `<|notimestamps|>`) followed by the tokenized initial
-     * prompt / glossary, matching how whisper.cpp seeds `initial_prompt`. The
-     * QNN decoder is non-streaming, so the language is picked up front (no
-     * whisper.cpp-style language auto-detect pass yet): the first allowed
-     * language wins, English if none is given.
+     * prompt / glossary, matching how whisper.cpp seeds `initial_prompt`.
+     *
+     * With more than one allowed language the prompt carries
+     * [AUTO_DETECT_LANGUAGE] and the native decoder fills in the language token
+     * from the `<|sot|>` logits (the same single-step detection whisper.cpp
+     * uses). A single language is pinned, so behaviour is unchanged for the
+     * common one-language case.
      */
     private fun buildPrompt(languages: Array<String>, prompt: String): IntArray {
-        val code = languages.firstOrNull() ?: "en"
-        val langToken = LANG_FIRST + (LANG_INDEX[code] ?: 0)
+        val allowed = languages.ifEmpty { arrayOf("en") }
+        val langToken = if (allowed.size == 1) {
+            LANG_FIRST + (LANG_INDEX[allowed[0]] ?: 0)
+        } else {
+            AUTO_DETECT_LANGUAGE
+        }
         val specials = intArrayOf(SOT, langToken, TRANSCRIBE, NOTIMESTAMPS)
         return specials + tokenizePrompt(prompt)
+    }
+
+    /**
+     * Language-token ids the decoder may choose from during auto-detection.
+     * Empty/unknown codes fall back to English, matching [buildPrompt].
+     */
+    private fun languageTokens(languages: Array<String>): IntArray {
+        val ids = languages.mapNotNull { LANG_INDEX[it] }.distinct()
+        return if (ids.isEmpty()) intArrayOf(LANG_FIRST) else IntArray(ids.size) { LANG_FIRST + ids[it] }
     }
 
     @Keep
@@ -217,11 +235,12 @@ class QnnWhisperEngine(
      * text is de-duplicated while the chunks are stitched together.
      *
      * [prompt] (the personal-dictionary glossary) is tokenized into the decoder
-     * seed. The precompiled QNN graph is greedy and single-language, so
+     * seed. The precompiled QNN graph is greedy and single-language per run, so
      * [bailLanguages] (cross-model language switching) and [decodingMode] (beam
      * search) are not honoured here — they only take effect on the ggml path —
-     * and [suppressNonSpeechTokens] is fixed by the graph. These limitations are
-     * explicit rather than silent: see `GPU_REVIEW_RECOMMENDATIONS.md`.
+     * and [suppressNonSpeechTokens] is fixed by the graph. Multiple allowed
+     * languages are resolved by detecting the language from the decoder's first
+     * step instead of pinning the first locale.
      */
     override suspend fun infer(
         samples: FloatArray,
@@ -241,6 +260,7 @@ class QnnWhisperEngine(
         if (samples.isEmpty()) return@withContext ""
 
         val promptIds = buildPrompt(languages, prompt)
+        val allowedLanguageTokens = languageTokens(languages)
         val chunks = LongFormChunking.planChunks(samples.size, CHUNK_SAMPLES, OVERLAP_SAMPLES)
         val maxOverlapWords = LongFormChunking.maxOverlapWords(OVERLAP_SAMPLES)
 
@@ -268,7 +288,7 @@ class QnnWhisperEngine(
                 throw InvalidModelException()
             }
 
-            val tokens = nativeTranscribe(handle, mel, promptIds, FloatArray(2))
+            val tokens = nativeTranscribe(handle, mel, promptIds, allowedLanguageTokens, FloatArray(2))
             if (tokens == null) {
                 if (cancelled) throw InferenceCancelledException()
                 throw InvalidModelException()
@@ -315,5 +335,5 @@ class QnnWhisperEngine(
     private external fun nativeLastError(): String
     private external fun nativeMelInit(filtersPath: String, nMel: Int): Boolean
     private external fun nativeMel(pcm: FloatArray): ShortArray?
-    private external fun nativeTranscribe(handle: Long, mel: ShortArray, promptIds: IntArray, metrics: FloatArray): IntArray?
+    private external fun nativeTranscribe(handle: Long, mel: ShortArray, promptIds: IntArray, languageTokens: IntArray, metrics: FloatArray): IntArray?
 }

@@ -46,6 +46,7 @@ import org.futo.inputmethod.latin.uix.settings.SettingsActivity
 import org.futo.inputmethod.latin.uix.utils.ModelOutputSanitizer
 import org.futo.inputmethod.latin.xlm.UserDictionaryObserver
 import org.futo.inputmethod.updates.openURI
+import org.futo.voiceinput.shared.BUILTIN_ENGLISH_MODEL
 import org.futo.voiceinput.shared.ModelDoesNotExistException
 import org.futo.voiceinput.shared.RecognizerView
 import org.futo.voiceinput.shared.RecognizerViewListener
@@ -132,13 +133,39 @@ private class VoiceInputActionWindow(
         val animateBubble = context.getSetting(ANIMATE_BUBBLE)
 
         val primaryModel = model
-        val languageSpecificModels = mutableMapOf<Language, ModelLoader>()
+        val primaryModelKey = primaryModel.key(context)
 
         // The backend was already resolved alongside the model (see
         // ResourceHelper.resolveVoiceInputSelection): it is either the user's
         // explicit CPU/Vulkan/QNN choice or the forced QNN backend of a
         // Qualcomm model. A QNN model never reaches this window on a device
         // that cannot run QNN without failing loudly in loadGGML first.
+        //
+        // whisper.cpp auto-detects among `allowedLanguages` and throws
+        // BailLanguageException when it recognises one of `bailLanguages`;
+        // MultiModelRunner then re-runs the audio with the model assigned to
+        // that language. This map used to stay empty after per-language model
+        // import replaced the old English/multilingual toggles, so a model
+        // imported for any language other than the current one was never used
+        // and the primary model (often the tiny built-in English one) silently
+        // transcribed everything. Fill it from the other active locales.
+        //
+        // Only the ggml backends implement the bail/switch path; the QNN graph
+        // is a single-shot decoder that ignores bailLanguages, so adding QNN
+        // models here would just waste memory.
+        val languageSpecificModels = buildMap {
+            if (backend == Backend.CPU || backend == Backend.VULKAN) {
+                for (specificLocale in locales) {
+                    val language = getLanguageFromWhisperString(specificLocale.language) ?: continue
+                    val selection = ResourceHelper.resolveVoiceInputSelection(context, specificLocale)
+                    val specificModel = selection.model ?: continue
+                    if (selection.backend != backend) continue
+                    if (specificModel.key(context) == primaryModelKey) continue
+                    put(language, specificModel)
+                }
+            }
+        }
+
         val allowedLanguages = locales.mapNotNull { getLanguageFromWhisperString(it.language) }.toSet()
         val glossary = if(usePersonalDict) {
             state.userDictionaryObserver.getWords(locales).filter { it.shortcut.isNullOrEmpty() }.map { it.word }
@@ -323,15 +350,32 @@ val VoiceInputAction = Action(icon = R.drawable.mic_fill,
         // disagree. It honours the user's explicit CPU/Vulkan/QNN choice and
         // always routes a Qualcomm model to QNN — which also fixes QNN ZIP
         // models previously resolving to the CPU backend and failing to load.
-        val selection = ResourceHelper.resolveVoiceInputSelection(manager.getContext(), locale)
-        val model = selection.model
+        //
+        // An explicitly imported model from any active language beats the tiny
+        // built-in English fallback. Otherwise a user who imported a model for
+        // a secondary language (e.g. Lithuanian in the multilingual bucket
+        // while English is current) kept getting tiny.en for everything, which
+        // looks like the imported model "failing": it was never selected. The
+        // chosen model's language is still only one candidate; the decoder
+        // auto-detects among all active languages (ggml via allowed_langs +
+        // bailLanguages, QNN via the <|sot|> logits).
+        val context = manager.getContext()
+        val builtInKey = BUILTIN_ENGLISH_MODEL.key(context)
+        val selections = locales.map {
+            it to ResourceHelper.resolveVoiceInputSelection(context, it)
+        }
+        val chosen = selections.firstOrNull {
+            val model = it.second.model
+            model != null && model.key(context) != builtInKey
+        } ?: selections.firstOrNull { it.first == locale && it.second.model != null }
+        val chosenModel = chosen?.second?.model
 
-        if(model == null) {
+        if(chosen == null || chosenModel == null) {
             VoiceInputNoModelWindow(locale)
         } else {
             VoiceInputActionWindow(
                 manager = manager, state = persistentState as VoiceInputPersistentState,
-                locales = locales, model = model, backend = selection.backend
+                locales = locales, model = chosenModel, backend = chosen.second.backend
             )
         }
     }
