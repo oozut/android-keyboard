@@ -60,9 +60,10 @@ build/outputs/apk/unstable/debug/android-keyboard-unstable-debug.apk
 ```
 
 > This approach compiles **everything**, including the hardware-acceleration
-> engine (see [Hardware-acceleration engine](#hardware-acceleration-engine)),
-> as long as the extra shader tooling is present in the image (the base
-> `gradle:8.14.3-jdk21` image may need it added — see that section).
+> engine (see [Hardware-acceleration engine](#hardware-acceleration-engine)).
+> The image installs `ninja-build` and puts the NDK's bundled `glslc` on
+> `PATH`; for the optional integer-dot/coopmat shader variants, install a
+> newer `glslc` in the image (see that section).
 
 ---
 
@@ -166,9 +167,11 @@ requires extra host tooling **inside the container**:
 | `g++` (`build-essential`) | Builds the host `vulkan-shaders-gen` tool |
 
 > **glslc gotcha:** Ubuntu 24.04 does not ship a `glslc` binary package (only
-> `libshaderc-dev`). Use a newer base (Ubuntu 26.04 / Debian trixie package it
-> as `glslc`), or install a prebuilt `glslc` from the
-> [shaderc releases](https://github.com/google/shaderc/releases). The Vulkan C
+> `libshaderc-dev`). The repo's `.ci/Dockerfile` therefore falls back to the
+> NDK's bundled `glslc`; that compiler lacks some newer extensions (e.g.
+> integer dot product), so the shader generator disables those optimizations.
+> For a fully optimized build, use a newer base (Ubuntu 26.04 / Debian trixie
+> package it as `glslc`) or install a newer `glslc` binary. The Vulkan C
 > headers/libs come from the NDK sysroot; `vulkan.hpp` + SPIR-V headers are
 > vendored in `native/jni/src/whisper-gpu/third_party/`.
 
