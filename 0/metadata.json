@@ -20,5 +20,80 @@
     "cache_read_tokens": 1511296,
     "output_tokens": 17228,
     "api_call_count": 43
+  },
+  "summary": {
+    "intent": "Review the current state of the android-keyboard project (uncommitted GPU/QNN work, untracked docs, submodule state) and then push everything to GitHub, including a second/additional repository the user referred to.",
+    "outcome": "The tree was reviewed in depth, verified to build via the distrobox android-dbx build script, two small cleanups were made (.gitignore for .pi/, orphaned KDoc in ImportResourceActivity.kt), and all work was committed as a single 'Voice input: per-language backend picker + QNN/Vulkan hardening' commit. The actual push to GitHub (and identification of the additional repo) was not completed before the transcript ended.",
+    "learnings": {
+      "repo": [
+        "Main repo is /home/gc/android-keyboard on branch master, with side branches GPUEnablement and PartialTranscription.",
+        "The `libs` submodule tracks oozut/android-libs (pinned commit f71fba92) and supplies the ONNX Runtime QNN and QNN runtime AARs.",
+        "ResourceHelper.resolveVoiceInputSelection() is the single source of truth for model+backend selection, replacing the old boolean hardware-acceleration switch.",
+        "QNN routing is driven by ModelLoader.requiredBackend rather than special-casing ModelQnnFileFile.",
+        "QnnSupport uses an allow-list of Snapdragon chipsets (HTP version + SOC_MODEL) rather than a blanket Qualcomm check.",
+        ".pi/ is a local agent scratch directory (build.log, launch.log, extensions) that should not be committed; .entire/ holds session checkpoints/metadata used for local context recovery.",
+        "Untracked docs (BUILDING.md, DEPLOYMENT.md, GPU_REVIEW_RECOMMENDATIONS.md, PARTIAL_TRANSCRIPTION_PLAN.md) and GPU_QNN_INTEGRATION.md changes were part of the pending work.",
+        "Builds run through `distrobox enter android-dbx -- bash .pi/build-debug.sh`; the host is not the build environment."
+      ],
+      "code": [
+        {
+          "path": "voiceinput-shared/src/main/java/org/futo/voiceinput/shared/ggml/QnnSupport.kt",
+          "finding": "New file implementing Snapdragon chipset allow-list (HTP version + SOC_MODEL) and a Vulkan gate mirroring ggml-vulkan requirements; no longer blacklists Mali."
+        },
+        {
+          "path": "voiceinput-shared/src/main/java/org/futo/voiceinput/shared/ggml/BackendSupport.kt",
+          "finding": "Defines the Backend enum (CPU/Vulkan/QNN) and availability/unavailableReason logic used by both the settings UI and the voice input action."
+        },
+        {
+          "path": "voiceinput-shared/src/main/java/org/futo/voiceinput/shared/whisper/ModelManager.kt",
+          "finding": "Switched to ConcurrentHashMap + computeIfAbsent so parallel preloads of models are safe."
+        },
+        {
+          "path": "voiceinput-shared/src/main/java/org/futo/voiceinput/shared/ggml/QnnWhisperEngine.kt",
+          "finding": "Tokenizes the personal-dictionary glossary into the decoder prompt, restricted to content tokens (id < EOT) to avoid the endoftext-first-token failure."
+        },
+        {
+          "path": "native/jni/src/whisper-gpu/org_futo_voiceinput_WhisperGGMLGpu.cpp",
+          "finding": "Introduced a process-global ggml log router with a live-state registry, fixing a use-after-free after close() and a leaked decoder output on failure; JNI local refs are now released."
+        },
+        {
+          "path": "native/jni/src/qnn-htp/whisper_mel.cpp",
+          "finding": "Filterbank initialization is now serialized to avoid concurrent-init races."
+        },
+        {
+          "path": "java/src/org/futo/inputmethod/latin/uix/ImportResourceActivity.kt",
+          "finding": "Non-QNN-ZIP import failures now show a generic error message; an orphaned KDoc was cleaned up during review."
+        },
+        {
+          "path": "java/src/org/futo/inputmethod/latin/uix/settings/pages/Languages.kt",
+          "finding": "Reworked to expose the per-language CPU/Vulkan/QNN backend picker instead of the old hw-accel toggle, with strings like voice_input_backend_* and QNN unavailability messaging."
+        },
+        {
+          "path": ".gitignore",
+          "finding": "Updated to ignore the local .pi/ agent scratch directory."
+        }
+      ],
+      "workflow": [
+        "Start a review by inspecting `git status --short`, `git branch -vv`, `git remote -v`, `git log --oneline`, and `git submodule status` together to see uncommitted, untracked, and submodule drift at once.",
+        "Run a secret scan (grep for api_key/token/secret/PRIVATE KEY) over new/modified docs before staging.",
+        "Verify `git check-ignore` on scratch dirs (.pi, .entire) before `git add -A` to avoid committing local agent state.",
+        "Rebuild after late source edits before committing; the distrobox build script is the authoritative check.",
+        "Sandbox proxy env vars break gh/network calls; prefix with `env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy`.",
+        "When memory recall fails, local session checkpoints under .entire/ and .pi/agent/sessions can substitute for prior context."
+      ]
+    },
+    "friction": [
+      "Cognee memory tool returned HTTP 402, so prior-session context was unavailable and had to be reconstructed from repo state and local session logs.",
+      "The user's phrase 'the additional repository' was ambiguous; searched .entire logs, shell history, and sibling repos (libs → oozut/android-libs, /home/gc/nordvpn-tailscale-ansible, /home/gc/whisper-poc) without a definitive answer.",
+      "Sandbox proxy environment variables interfere with gh/git network operations, requiring explicit env unsets.",
+      "The libs submodule needed separate status/remote inspection to confirm it was clean and in sync with oozut/android-libs."
+    ],
+    "open_items": [
+      "Push the committed work to GitHub on the main repo (master) — not performed in this session.",
+      "Push/verify the 'additional repository' (most likely the libs submodule, oozut/android-libs) — target never confirmed.",
+      "Confirm whether the GPUEnablement and PartialTranscription side branches should be pushed or merged.",
+      "Local .pi/ scratch remains untracked by design; ensure it stays ignored.",
+      "Remaining P2 items from GPU_REVIEW_RECOMMENDATIONS.md, if any were not fully addressed by the commit."
+    ]
   }
 }
