@@ -225,6 +225,7 @@ fun LanguageSurface(
     onToggleMultilingualBucket: (Boolean) -> Unit,
     onVoiceInputBackendSelected: (Backend) -> Unit = {}
 ) {
+    val context = LocalContext.current
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
             modifier
@@ -271,6 +272,16 @@ fun LanguageSurface(
                         onSelected = onVoiceInputBackendSelected,
                         titleColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                     )
+
+                    // Only relevant while QNN is the active backend. Showing this
+                    // for every language (even CPU/Vulkan ones) was noise.
+                    if (item.options.voiceInputBackend == Backend.QNN &&
+                        item.options.voiceInputHasQnnModel &&
+                        ResourceHelper.findSharedQnnVoiceInputModel(context) != null
+                    ) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Tip(stringResource(R.string.language_settings_resource_qnn_shared_banner))
+                    }
 
                     // Only when QNN is missing from the picker entirely: when it is
                     // offered, selecting it shows the same explanation underneath.
@@ -950,12 +961,6 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
                 showBack = true,
                 navController
             )
-        }
-
-        item {
-            if (ResourceHelper.findSharedQnnVoiceInputModel(context) != null) {
-                Tip(stringResource(R.string.language_settings_resource_qnn_shared_banner))
-            }
         }
 
         items(LanguageSettingsTop) {
