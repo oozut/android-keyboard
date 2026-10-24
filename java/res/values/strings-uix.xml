@@ -325,6 +325,9 @@
     <string name="language_settings_resource_voice_input_qnn_selected">Would you like to remove the QNN voice input model, or replace it with another file?</string>
     <string name="language_settings_resource_voice_input_selected_no_default_warning">No built-in voice input model exists for this language, so if you remove it, voice input will stop working for this language until you import a different model!</string>
     <string name="language_settings_resource_voice_input_selected_unset">You have not configured a custom voice input model for this language. You can explore downloads online, or import one from a file.</string>
+    <string name="language_settings_resource_voice_input_qnn_selected_unset">No Qualcomm (QNN) model is installed.</string>
+    <string name="language_settings_resource_qnn_shared_banner">One Qualcomm (QNN) model is installed and shared across all languages.</string>
+    <string name="language_settings_resource_voice_input_qnn_shared_notice">This Qualcomm model is shared across all languages. Replacing or removing it affects every language.</string>
     <string name="language_settings_resource_transformer_selected">Would you like to revert the transformer model to default, or replace it with another file?</string>
     <string name="language_settings_resource_transformer_selected_no_default_warning">No built-in transformer model exists for this language, so if you remove it, transformer-based predictions will stop working for this language until you import a different model!</string>
     <string name="language_settings_resource_transformer_selected_unset">You have not configured a custom transformer model for this language. You can explore downloads online, or import one from a file.</string>
@@ -384,8 +387,13 @@
     <string name="resource_importer_import_button">Import</string>
     <string name="resource_importer_file_info">File information: %1$s</string>
     <string name="resource_importer_importing">Importing for language: %1$s</string>
+    <string name="resource_importer_importing_all">Importing for all languages…</string>
     <string name="resource_importer_importing_cfg">Importing configuration… Please do not close this menu until the process is completed (5 to 10 seconds)</string>
     <string name="resource_importer_select_language">Select the language to import for:</string>
+    <string name="resource_importer_qnn_shared_warning">QNN models are shared across all languages. Importing this file installs one Qualcomm model for every language on this device, so you do not need to import it again for each language. Importing another QNN model replaces it for all languages.</string>
+    <string name="resource_importer_qnn_install_all">Install QNN model for all languages</string>
+    <string name="resource_importer_qnn_all_languages">all languages</string>
+    <string name="resource_importer_qnn_no_languages">Enable at least one language before importing a QNN model.</string>
     <string name="resource_importer_warning_language_missing">This file appears to be intended for a language (%1$s) which is not enabled in settings</string>
     <string name="resource_importer_warning_cfg_backup_is_destructive2">Are you sure you want to import this configuration backup? This will replace all of your settings, personal dictionary (system-wide), learned dictionary words, any imported resources, and more. If you’re unsure, make another backup before this.</string>
     <string name="resource_importer_warning_cfg_backup_newer_version">This configuration backup was created by a newer version of FUTO Keyboard, and it might not import properly. Try updating FUTO Keyboard first.</string>

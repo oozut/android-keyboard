@@ -192,8 +192,11 @@ fun SettingsImportScreen(
 fun ImportScreen(fileKind: FileKindAndInfo, onApply: (FileKindAndInfo, InputMethodSubtype) -> Unit, onCancel: () -> Unit) {
     val context = LocalContext.current
     val resources = LocalResources.current
+    val activeLanguages = remember { getActiveLanguages(context) }
     val importing = remember { mutableStateOf(false) }
     val importingLanguage = remember { mutableStateOf("") }
+    val importAllLanguagesLabel = stringResource(R.string.resource_importer_qnn_install_all)
+    val allLanguagesLabel = stringResource(R.string.resource_importer_qnn_all_languages)
     ScrollableList {
         ScreenTitleWithIcon(title = stringResource(R.string.resource_importer_import_title, fileKind.kind.kindTitle(resources)), painter = painterResource(id = fileKind.kind.icon()))
 
@@ -224,14 +227,46 @@ fun ImportScreen(fileKind: FileKindAndInfo, onApply: (FileKindAndInfo, InputMeth
                     .padding(32.dp)) {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
-                Text(stringResource(R.string.resource_importer_importing, importingLanguage.value), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+                Text(
+                    if (fileKind.kind == FileKind.VoiceInputQnnZip) {
+                        stringResource(R.string.resource_importer_importing_all)
+                    } else {
+                        stringResource(R.string.resource_importer_importing, importingLanguage.value)
+                    },
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else if(fileKind.kind == FileKind.VoiceInputQnnZip) {
+                // A QNN model is a single multilingual asset, not a per-language
+                // resource. Make that explicit and skip the language picker that
+                // would otherwise imply the model only applies to one language.
+                Tip(stringResource(R.string.resource_importer_qnn_shared_warning))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val target = activeLanguages.firstOrNull()
+                if (target == null) {
+                    Text(
+                        stringResource(R.string.resource_importer_qnn_no_languages),
+                        modifier = Modifier.padding(16.dp, 8.dp)
+                    )
+                } else {
+                    NavigationItem(
+                        title = importAllLanguagesLabel,
+                        style = NavigationItemStyle.Misc,
+                        navigate = {
+                            importing.value = true
+                            importingLanguage.value = allLanguagesLabel
+                            onApply(fileKind, target.inputMethodSubtype)
+                        }
+                    )
+                }
             } else {
                 Text(
                     stringResource(R.string.resource_importer_select_language),
                     modifier = Modifier.padding(16.dp, 8.dp)
                 )
 
-                val languages = getActiveLanguages(context).let {
+                val languages = activeLanguages.let {
                     if(fileKind.locale != null) {
                         it.filter { it.tag.lowercase() == fileKind.locale.lowercase() || it.tag.split("_")[0].lowercase() == fileKind.locale.split("_")[0].lowercase() }.let {
                             if(it.isEmpty()) {
@@ -240,7 +275,7 @@ fun ImportScreen(fileKind: FileKindAndInfo, onApply: (FileKindAndInfo, InputMeth
                                         R.string.resource_importer_warning_language_missing,
                                         fileKind.locale
                                     ))
-                                getActiveLanguages(context)
+                                activeLanguages
                             } else {
                                 it
                             }
@@ -265,6 +300,12 @@ fun ImportScreen(fileKind: FileKindAndInfo, onApply: (FileKindAndInfo, InputMeth
         }
     }
 }
+
+/**
+ * Preference key used to store the single QNN model shared by every language.
+ * It is not a real locale; [FileKind.preferenceKeyFor] only needs a stable key.
+ */
+const val QNN_SHARED_RESOURCE_KEY = "qnn-shared"
 
 enum class FileKind {
     VoiceInput,
@@ -782,21 +823,38 @@ object ResourceHelper {
         return ModelFileFile(R.string.settings_external_model_name, file)
     }
 
+    /**
+     * The QNN ZIP model shared by every language, if one has been imported.
+     * QNN runs one multilingual model on the Hexagon NPU, so there is only ever
+     * a single active QNN ZIP rather than one per language.
+     */
+    fun findSharedQnnVoiceInputModel(context: Context): File? {
+        val value = context.getSetting(
+            FileKind.VoiceInputQnnZip.preferenceKeyFor(QNN_SHARED_RESOURCE_KEY), ""
+        )
+        if (value.isBlank()) return null
+        return File(context.getExternalFilesDir(null), value).takeIf { it.exists() }
+    }
+
+    private fun modelQnnZipFromDir(dir: File?): ModelQnnZip? {
+        if (dir == null || !dir.isDirectory) return null
+        val encoder = findQnnPart(dir, "encoder.onnx") ?: return null
+        val decoder = findQnnPart(dir, "decoder.onnx") ?: return null
+        return ModelQnnZip(R.string.settings_external_model_name, encoder, decoder)
+    }
+
     fun tryFindingQnnVoiceInputModelForLocale(context: Context, locale: Locale): ModelLoader? {
-        // Single precompiled context binary (legacy single-file path).
+        // Shared ZIP first: once installed it is the QNN model for every language.
+        modelQnnZipFromDir(findSharedQnnVoiceInputModel(context))?.let { return it }
+
+        // Legacy per-locale ZIP, then the even older single-file context binary.
+        modelQnnZipFromDir(runBlocking {
+            findFileForKind(context, locale, FileKind.VoiceInputQnnZip)
+        })?.let { return it }
+
         val file = runBlocking { findFileForKind(context, locale, FileKind.VoiceInputQnn) }
         if (file != null && file.isFile) {
             return ModelQnnFileFile(R.string.settings_external_model_name, file)
-        }
-
-        // ZIP container extracted to a directory holding encoder.onnx + decoder.onnx.
-        val dir = runBlocking { findFileForKind(context, locale, FileKind.VoiceInputQnnZip) }
-        if (dir != null && dir.isDirectory) {
-            val encoder = findQnnPart(dir, "encoder.onnx")
-            val decoder = findQnnPart(dir, "decoder.onnx")
-            if (encoder != null && decoder != null) {
-                return ModelQnnZip(R.string.settings_external_model_name, encoder, decoder)
-            }
         }
 
         return null
@@ -877,15 +935,33 @@ object ResourceHelper {
     }
 
     fun deleteResourceForLanguage(context: Context, kind: FileKind, locale: Locale) {
-        val setting = kind.preferenceKeyFor(locale.toString())
-        val value = runBlocking { context.getSetting(setting, "") }
-        if(value.isNotBlank()) {
-            val file = File(context.getExternalFilesDir(null), value)
-            if (file.isDirectory) file.deleteRecursively() else file.delete()
+        // A QNN ZIP is one model shared by all languages. Removing it removes it
+        // for every language, and also cleans up legacy per-locale ZIP entries.
+        val keys = if (kind == FileKind.VoiceInputQnnZip) {
+            listOf(QNN_SHARED_RESOURCE_KEY, locale.toString())
+        } else {
+            listOf(locale.toString())
         }
 
-        runBlocking { context.setSetting(kind.preferenceKeyFor(locale.toString()), "") }
-        runBlocking { context.setSetting(kind.namePreferenceKeyFor(locale.toString()), "") }
+        for (key in keys) {
+            val setting = kind.preferenceKeyFor(key)
+            val value = runBlocking { context.getSetting(setting, "") }
+            if(value.isNotBlank()) {
+                val file = File(context.getExternalFilesDir(null), value)
+                if (file.isDirectory) file.deleteRecursively() else file.delete()
+            }
+
+            runBlocking { context.setSetting(setting, "") }
+            runBlocking { context.setSetting(kind.namePreferenceKeyFor(key), "") }
+        }
+
+        if (kind == FileKind.VoiceInputQnnZip) {
+            // The QNN ZIP is shared, so also remove any legacy per-locale ZIP
+            // directories that the old import flow may have created.
+            context.getExternalFilesDir(null)?.listFiles()
+                ?.filter { it.isDirectory && it.name.startsWith("voiceinputqnnzip_") }
+                ?.forEach { it.deleteRecursively() }
+        }
 
         GlobalIMEMessage.tryEmit(IMEMessage.ReloadResources)
     }
@@ -999,7 +1075,15 @@ class ImportResourceActivity : ComponentActivity() {
 
         var locale = fileKind.forceLocale ?: inputMethodSubtype.locale
 
-        val sanitizedLocaleForFilename = locale.replace("#", "H")
+        // The QNN ZIP is one multilingual model shared by every language, so it
+        // is stored under a synthetic key instead of the selected locale.
+        val resourceKey = if (fileKind.kind == FileKind.VoiceInputQnnZip) {
+            QNN_SHARED_RESOURCE_KEY
+        } else {
+            locale.toString()
+        }
+
+        val sanitizedLocaleForFilename = resourceKey.replace("#", "H")
         val outputFileName = "${fileKind.kind.name.lowercase()}_$sanitizedLocaleForFilename${fileKind.kind.extension()}"
 
         lifecycleScope.launch {
@@ -1050,17 +1134,23 @@ class ImportResourceActivity : ComponentActivity() {
                             outDir.deleteRecursively()
                             qnnZipImportFailed = true
                         } else {
-                            // Update reference to the extracted directory.
+                            // Update the single shared reference and clean up
+                            // legacy per-locale QNN ZIP directories. They are
+                            // unreachable now that the shared model wins.
                             applicationContext.setSetting(
-                                fileKind.kind.preferenceKeyFor(locale),
+                                fileKind.kind.preferenceKeyFor(resourceKey),
                                 outDir.name
                             )
                             fileKind.name?.let {
                                 applicationContext.setSetting(
-                                    fileKind.kind.namePreferenceKeyFor(locale),
+                                    fileKind.kind.namePreferenceKeyFor(resourceKey),
                                     it
                                 )
                             }
+
+                            applicationContext.getExternalFilesDir(null)?.listFiles()
+                                ?.filter { it.isDirectory && it.name.startsWith("voiceinputqnnzip_") && it.name != outDir.name }
+                                ?.forEach { it.deleteRecursively() }
                         }
                     }
                 } else {
@@ -1078,12 +1168,12 @@ class ImportResourceActivity : ComponentActivity() {
 
                     // 2. Update reference
                     applicationContext.setSetting(
-                        fileKind.kind.preferenceKeyFor(locale),
+                        fileKind.kind.preferenceKeyFor(resourceKey),
                         outputFileName
                     )
                     fileKind.name?.let {
                         applicationContext.setSetting(
-                            fileKind.kind.namePreferenceKeyFor(locale),
+                            fileKind.kind.namePreferenceKeyFor(resourceKey),
                             it
                         )
                     }

@@ -306,10 +306,11 @@ object BackendSupport {
     /**
      * Default choice for a locale the user has never configured.
      *
-     * Importing a Qualcomm model is a deliberate per-locale act and such a model
-     * has no CPU alternative, so an assigned QNN model is preferred when the
-     * device supports it. Vulkan and CPU stay strictly opt-in otherwise, which
-     * also keeps existing installs on the behaviour they had before the picker.
+     * Importing a Qualcomm model is a deliberate act (the model is shared across
+     * all languages) and it has no CPU alternative, so an assigned QNN model is
+     * preferred when the device supports it. Vulkan and CPU stay strictly opt-in
+     * otherwise, which also keeps existing installs on the behaviour they had
+     * before the picker.
      */
     fun defaultBackend(context: Context, hasGgmlModel: Boolean, hasQnnModel: Boolean): Backend {
         if (hasQnnModel && isQnnAvailable(context)) {

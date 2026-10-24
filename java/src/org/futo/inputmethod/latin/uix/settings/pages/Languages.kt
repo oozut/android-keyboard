@@ -81,6 +81,7 @@ import org.futo.inputmethod.updates.openURI
 import org.futo.voiceinput.shared.ggml.Backend
 import org.futo.voiceinput.shared.ggml.BackendSupport
 import org.futo.voiceinput.shared.ggml.BackendUnavailableReason
+import org.futo.voiceinput.shared.types.ModelQnnZip
 import java.util.Locale
 
 private val InputMethodSubtype.layoutSetName
@@ -593,6 +594,11 @@ fun ConfirmResourceActionDialog(
         },
         text = {
             Column {
+                if (resourceKind == FileKind.VoiceInputQnnZip) {
+                    Tip(stringResource(R.string.language_settings_resource_voice_input_qnn_shared_notice))
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
                 if (isCurrentlySet) {
                     Text(
                         text = when (resourceKind) {
@@ -620,8 +626,8 @@ fun ConfirmResourceActionDialog(
                     Text(
                         text = when (resourceKind) {
                             FileKind.VoiceInput -> stringResource(R.string.language_settings_resource_voice_input_selected_unset)
-                            FileKind.VoiceInputQnn -> stringResource(R.string.language_settings_resource_voice_input_selected_unset)
-                            FileKind.VoiceInputQnnZip -> stringResource(R.string.language_settings_resource_voice_input_selected_unset)
+                            FileKind.VoiceInputQnn -> stringResource(R.string.language_settings_resource_voice_input_qnn_selected_unset)
+                            FileKind.VoiceInputQnnZip -> stringResource(R.string.language_settings_resource_voice_input_qnn_selected_unset)
                             FileKind.Transformer -> stringResource(R.string.language_settings_resource_transformer_selected_unset)
                             FileKind.Dictionary -> stringResource(R.string.language_settings_resource_dictionary_selected_unset)
                             FileKind.Invalid -> ""
@@ -830,6 +836,22 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
         val dialogVoiceInputSelection = remember(info, gpuRevision.value) {
             ResourceHelper.resolveVoiceInputSelection(context, info.locale)
         }
+        // The card always edits FileKind.VoiceInput, but when the selected backend
+        // is QNN the active asset is a Qualcomm model. Point the dialog at that
+        // kind so "Remove" deletes the QNN model instead of a ggml one, and so
+        // the shared-model notice is shown.
+        val dialogKind = if (info.kind == FileKind.VoiceInput &&
+            dialogVoiceInputSelection.backend == Backend.QNN &&
+            dialogVoiceInputSelection.qnnModel != null
+        ) {
+            if (dialogVoiceInputSelection.qnnModel is ModelQnnZip) {
+                FileKind.VoiceInputQnnZip
+            } else {
+                FileKind.VoiceInputQnn
+            }
+        } else {
+            info.kind
+        }
         ConfirmResourceActionDialog(
             onDismissRequest = {
                 gpuRevision.value++
@@ -840,7 +862,7 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
                 deleteDialogInfo.value = null
             },
             onDelete = {
-                ResourceHelper.deleteResourceForLanguage(context, info.kind, info.locale)
+                ResourceHelper.deleteResourceForLanguage(context, dialogKind, info.locale)
                 gpuRevision.value++
                 deleteDialogInfo.value = null
             },
@@ -850,14 +872,25 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
                 deleteDialogInfo.value = null
             },
 
-            resourceKind = info.kind,
+            resourceKind = dialogKind,
             locale = info.locale,
             isCurrentlySet = runBlocking {
-                ResourceHelper.findFileForKind(
-                    context,
-                    info.locale,
-                    info.kind
-                )?.exists() == true
+                if (dialogKind == FileKind.VoiceInputQnnZip) {
+                    // New imports live under the shared key; also accept a
+                    // legacy per-locale ZIP so it can still be removed.
+                    ResourceHelper.findSharedQnnVoiceInputModel(context) != null ||
+                        ResourceHelper.findFileForKind(
+                            context,
+                            info.locale,
+                            FileKind.VoiceInputQnnZip
+                        )?.exists() == true
+                } else {
+                    ResourceHelper.findFileForKind(
+                        context,
+                        info.locale,
+                        dialogKind
+                    )?.exists() == true
+                }
             },
             voiceInputBackends = remember(dialogVoiceInputSelection) {
                 BackendSupport.availableBackends(
@@ -917,6 +950,12 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
                 showBack = true,
                 navController
             )
+        }
+
+        item {
+            if (ResourceHelper.findSharedQnnVoiceInputModel(context) != null) {
+                Tip(stringResource(R.string.language_settings_resource_qnn_shared_banner))
+            }
         }
 
         items(LanguageSettingsTop) {
