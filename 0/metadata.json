@@ -1,0 +1,21 @@
+{
+  "cli_version": "0.11.6",
+  "checkpoint_id": "01M5PZR9ZV1T5HMRY1KKY6NVYF",
+  "session_id": "01a16573-7600-75a4-9f2d-183010a1295d",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-24T12:56:46.243689863Z",
+  "checkpoints_count": 43,
+  "files_touched": null,
+  "agent": "Pi",
+  "model": "opencode-go/deepseek-v4.1-flash",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 49698022,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3940480,
+    "output_tokens": 149157,
+    "api_call_count": 805
+  },
+  "kind": "agent_review",
+  "review_prompt": "can you build the package and send it to my phone using the filesahre?"
+}
