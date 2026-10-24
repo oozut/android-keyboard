@@ -1,6 +1,7 @@
 package org.futo.inputmethod.latin.uix.actions
 
 import android.content.Intent
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -364,11 +365,24 @@ val VoiceInputAction = Action(icon = R.drawable.mic_fill,
         val selections = locales.map {
             it to ResourceHelper.resolveVoiceInputSelection(context, it)
         }
-        val chosen = selections.firstOrNull {
+        val currentSelection = selections.firstOrNull { it.first == locale }
+        val chosen = currentSelection?.takeIf {
+            val model = it.second.model
+            model != null && model.key(context) != builtInKey
+        } ?: selections.firstOrNull {
             val model = it.second.model
             model != null && model.key(context) != builtInKey
         } ?: selections.firstOrNull { it.first == locale && it.second.model != null }
         val chosenModel = chosen?.second?.model
+
+        Log.i("VoiceInputSelect", "active locales=${locales.map { it.toString() }}")
+        for ((selectionLocale, selection) in selections) {
+            val selectionModel = selection.model
+            Log.i("VoiceInputSelect", "locale=$selectionLocale backend=${selection.backend} " +
+                "ggml=${selection.ggmlModel?.key(context)} qnn=${selection.qnnModel?.key(context)} " +
+                "chosen=${selectionModel?.key(context)} exists=${selectionModel?.exists(context)}")
+        }
+        Log.i("VoiceInputSelect", "chosen=${chosenModel?.key(context)} backend=${chosen?.second?.backend}")
 
         if(chosen == null || chosenModel == null) {
             VoiceInputNoModelWindow(locale)
