@@ -34,6 +34,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
+import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.InputMethodSubtype;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -49,11 +50,23 @@ import org.futo.inputmethod.latin.SuggestedWords.SuggestedWordInfo;
 import org.futo.inputmethod.latin.common.Constants;
 import org.futo.inputmethod.latin.common.InputPointers;
 import org.futo.inputmethod.latin.common.LocaleUtils;
+import org.futo.inputmethod.latin.uix.DataStoreHelper;
 import org.futo.inputmethod.latin.common.StringUtils;
+import org.futo.inputmethod.latin.makedict.DictionaryHeader;
+import org.futo.inputmethod.latin.makedict.FormatSpec;
+import org.futo.inputmethod.latin.makedict.FormatSpec.DictionaryOptions;
+import org.futo.inputmethod.latin.makedict.FormatSpec.FormatOptions;
+import org.futo.inputmethod.latin.makedict.FusionDictionary;
+import org.futo.inputmethod.latin.makedict.ProbabilityInfo;
+import org.futo.inputmethod.latin.makedict.UnsupportedFormatException;
+import org.futo.inputmethod.latin.makedict.Ver2DictEncoder;
 import org.futo.inputmethod.latin.settings.DebugSettings;
 import org.futo.inputmethod.latin.settings.Settings;
 import org.futo.inputmethod.latin.utils.SubtypeLocaleUtils;
 
+import java.io.File;
+import java.io.IOException;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 
@@ -87,6 +100,8 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
     private boolean mPreviousBigramPredictionSettings;
     private boolean mPreviousTransformerLmSetting;
     private int mPreviousAltSpacesMode;
+    private int mPreviousBackspaceMode;
+    private int mPreviousBackspaceModeHold;
 
     public InputTestsBase(Class<LatinIME> serviceClass) {
         super(serviceClass);
@@ -221,9 +236,59 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
         return "true".equals(arguments.getString("useTransformerLm"));
     }
 
+    /**
+     * Installs a small English binary dictionary into the app's word-list cache.
+     *
+     * The production fallback dictionary in java/res/raw/main.dict is an intentionally empty
+     * stub, and the full dictionary lives only in the res-large resource qualifier, which a
+     * phone-sized test device does not select. The AOSP input-logic tests however rely on a
+     * dictionary with next-word bigrams (in particular "Barack" -> "Obama"). Build such a
+     * dictionary once per app install with the v2 encoder used by the dictionary tests.
+     */
+    private void installTestDictionary() {
+        final File dictDir = new File(getContext().getFilesDir(), "dicts/en_US");
+        final File dictFile = new File(dictDir, "test:en_US");
+        if (dictFile.isFile()) return;
+        if (!dictDir.isDirectory() && !dictDir.mkdirs()) {
+            Log.e(TAG, "Cannot create test dictionary directory " + dictDir);
+            return;
+        }
+
+        final HashMap<String, String> attributes = new HashMap<>();
+        attributes.put(DictionaryHeader.DICTIONARY_ID_KEY, "test:en_US");
+        attributes.put(DictionaryHeader.DICTIONARY_LOCALE_KEY, "en_US");
+        attributes.put(DictionaryHeader.DICTIONARY_VERSION_KEY, "54");
+        attributes.put(DictionaryHeader.DICTIONARY_DESCRIPTION_KEY, "Instrumentation test dictionary");
+
+        final FusionDictionary dict = new FusionDictionary(
+                new FusionDictionary.PtNodeArray(), new DictionaryOptions(attributes));
+        final String[] words = {
+                "Barack", "Obama", "qpmz"
+        };
+        for (final String word : words) {
+            dict.add(word, new ProbabilityInfo(180), false /* isNotAWord */,
+                    false /* isPossiblyOffensive */);
+        }
+        dict.setBigram("Barack", "Obama", new ProbabilityInfo(255));
+
+        final File temp = new File(dictDir, "test:en_US.tmp");
+        try {
+            new Ver2DictEncoder(temp, Ver2DictEncoder.CODE_POINT_TABLE_OFF)
+                    .writeDictionary(dict, new FormatOptions(FormatSpec.VERSION202));
+            if (!temp.renameTo(dictFile)) {
+                Log.e(TAG, "Cannot install test dictionary to " + dictFile);
+                temp.delete();
+            }
+        } catch (IOException | UnsupportedFormatException e) {
+            Log.e(TAG, "Cannot write test dictionary", e);
+            temp.delete();
+        }
+    }
+
     @Override
     protected void setUp() throws Exception {
         super.setUp();
+        installTestDictionary();
         mEditText = new MyEditText(getContext());
         final int inputType = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
                 | InputType.TYPE_TEXT_FLAG_MULTI_LINE;
@@ -236,6 +301,12 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
         setupService();
         mLatinIME = getService();
         mLatinIMELegacy = mLatinIME.getLatinIMELegacy();
+        // These tests assert the legacy editor contract: typing starts a real composing region
+        // and the suggestion/underline spans are visible on the Editable.  The shipped IME
+        // defaults to the non-composing InputConnection wrapper (an editor workaround), which
+        // deliberately keeps those spans out of the editor, so opt out for the harness.
+        DataStoreHelper.setSettingForTest(
+                InputConnectionInternalComposingWrapperKt.getTextInputAlternativeIC(), false);
         setDebugMode(true);
         mPreviousBigramPredictionSettings = setBooleanPreference(Settings.PREF_BIGRAM_PREDICTIONS,
                 true, true /* defaultValue */);
@@ -252,6 +323,13 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
         // expectations below stay meaningful instead of silently testing another mode.
         mPreviousAltSpacesMode = setIntPreference(Settings.PREF_ALT_SPACES_MODE,
                 Settings.SPACES_MODE_LEGACY, Settings.DEFAULT_ALT_SPACES_MODE);
+        // These tests are written against character-wise backspace. The fork can be configured
+        // to delete whole words on key repeat, and the harness shares preferences with the real
+        // app, so pin the legacy behavior instead of inheriting the device's setting.
+        mPreviousBackspaceMode = setIntPreference(Settings.PREF_BACKSPACE_MODE,
+                Settings.BACKSPACE_MODE_CHARACTERS, Settings.BACKSPACE_MODE_CHARACTERS);
+        mPreviousBackspaceModeHold = setIntPreference(Settings.PREF_BACKSPACE_MODE_HOLD,
+                Settings.BACKSPACE_MODE_CHARACTERS, Settings.BACKSPACE_MODE_CHARACTERS);
         getService().onCreate();
         EditorInfo ei = new EditorInfo();
         final InputConnection ic = mEditText.onCreateInputConnection(ei);
@@ -290,6 +368,12 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
                 mPreviousTransformerLmSetting, true);
         setIntPreference(Settings.PREF_ALT_SPACES_MODE, mPreviousAltSpacesMode,
                 Settings.DEFAULT_ALT_SPACES_MODE);
+        setIntPreference(Settings.PREF_BACKSPACE_MODE, mPreviousBackspaceMode,
+                Settings.BACKSPACE_MODE_CHARACTERS);
+        setIntPreference(Settings.PREF_BACKSPACE_MODE_HOLD, mPreviousBackspaceModeHold,
+                Settings.BACKSPACE_MODE_CHARACTERS);
+        DataStoreHelper.clearSettingForTest(
+                InputConnectionInternalComposingWrapperKt.getTextInputAlternativeIC());
         setDebugMode(false);
         mLatinIMELegacy.recycle();
         super.tearDown();
@@ -489,7 +573,12 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
      */
     protected int sendUpdateForCursorMoveTo(final int position) {
         mInputConnection.setSelection(position, position);
-        mLatinIMELegacy.onUpdateSelection(mLastCursorPos, mLastCursorPos, position, position, -1, -1);
+        // Real framework callbacks carry the current composing span. Passing -1 here made
+        // cursor moves into a composing word look like ordinary selection updates.
+        final int composingStart = BaseInputConnection.getComposingSpanStart(mEditText.getText());
+        final int composingEnd = BaseInputConnection.getComposingSpanEnd(mEditText.getText());
+        mLatinIMELegacy.onUpdateSelection(mLastCursorPos, mLastCursorPos, position, position,
+                composingStart, composingEnd);
         mLastCursorPos = position;
         return position;
     }

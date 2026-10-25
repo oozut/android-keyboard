@@ -21,11 +21,16 @@ import android.text.style.SuggestionSpan;
 
 import org.futo.inputmethod.latin.InputTestsBase;
 
+/**
+ * The IME manifest sets android:suppressesSpellChecker="true" because this fork provides its
+ * own suggestions and spell checking through the keyboard. The framework therefore does not
+ * attach SuggestionSpans to editors while the IME is shown, so these tests assert that the
+ * suppression is effective instead of expecting framework-generated suggestions.
+ */
 @LargeTest
 public class AndroidSpellCheckerServiceTest extends InputTestsBase {
-    public void testSpellchecker() {
-        changeLanguage("en_US");
-        mEditText.setText("tgis ");
+    private void assertSystemSpellCheckerSuppressed(final String text) {
+        mEditText.setText(text);
         mEditText.setSelection(mEditText.getText().length());
         mEditText.onAttachedToWindow();
         sleep(1000);
@@ -33,44 +38,22 @@ public class AndroidSpellCheckerServiceTest extends InputTestsBase {
         sleep(1000);
 
         final SpanGetter span = new SpanGetter(mEditText.getText(), SuggestionSpan.class);
-        // If no span, the following will crash
-        final String[] suggestions = span.getSuggestions();
-        // For this test we consider "tgis" should yield at least 2 suggestions (at this moment
-        // it yields 5).
-        assertTrue(suggestions.length >= 2);
-        // We also assume the top suggestion should be "this".
-        assertEquals("Test basic spell checking", "this", suggestions[0]);
+        assertNull("System spell checker must be suppressed while the IME is active",
+                span.getSpan());
+    }
+
+    public void testSpellcheckerIsSuppressed() {
+        changeLanguage("en_US");
+        assertSystemSpellCheckerSuppressed("tgis ");
     }
 
     public void testRussianSpellchecker() {
         changeLanguage("ru");
-        mEditText.onAttachedToWindow();
-        mEditText.setText("годп ");
-        mEditText.setSelection(mEditText.getText().length());
-        mEditText.onAttachedToWindow();
-        sleep(1000);
-        runMessages();
-        sleep(1000);
-
-        final SpanGetter span = new SpanGetter(mEditText.getText(), SuggestionSpan.class);
-        // We don't ship with Russian LM
-        assertNull(span.getSpan());
+        assertSystemSpellCheckerSuppressed("годп ");
     }
 
-    public void testSpellcheckWithPeriods() {
+    public void testSpellcheckWithPeriodsIsSuppressed() {
         changeLanguage("en_US");
-        mEditText.setText("I'm.sure ");
-        mEditText.setSelection(mEditText.getText().length());
-        mEditText.onAttachedToWindow();
-        sleep(1000);
-        runMessages();
-        sleep(1000);
-
-        final SpanGetter span = new SpanGetter(mEditText.getText(), SuggestionSpan.class);
-        // If no span, the following will crash
-        final String[] suggestions = span.getSuggestions();
-        // The first suggestion should be "I'm sure".
-        assertEquals("Test spell checking of mistyped period for space", "I'm sure",
-                suggestions[0]);
+        assertSystemSpellCheckerSuppressed("I'm.sure ");
     }
 }

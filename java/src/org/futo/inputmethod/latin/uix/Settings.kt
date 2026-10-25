@@ -263,8 +263,14 @@ class DataStoreHelper {
             }
         }
 
+        // Instrumentation-only overrides. Kept separate from currentPreferences so the
+        // DataStore collector cannot race with a test that changes a setting for its duration.
+        private val settingOverridesForTest = HashMap<Preferences.Key<*>, Any>()
+
         @JvmStatic
-        fun<T> getSettingOrNull(key: Preferences.Key<T>): T? = currentPreferences[key]
+        @Suppress("UNCHECKED_CAST")
+        fun<T> getSettingOrNull(key: Preferences.Key<T>): T? =
+                (settingOverridesForTest[key] as T?) ?: currentPreferences[key]
 
         @JvmStatic
         fun<T> getSetting(key: Preferences.Key<T>, default: T): T = getSettingOrNull(key) ?: default
@@ -274,6 +280,20 @@ class DataStoreHelper {
 
         @JvmStatic
         fun<T> getSetting(setting: SettingsKey<T>): T = getSettingOrNull(setting.key) ?: setting.default
+
+        /**
+         * Overrides a setting for the current instrumentation test without touching the
+         * persistent store, and without racing the DataStore collector.
+         */
+        @JvmStatic
+        fun<T> setSettingForTest(setting: SettingsKey<T>, value: T) {
+            settingOverridesForTest[setting.key] = value as Any
+        }
+
+        @JvmStatic
+        fun<T> clearSettingForTest(setting: SettingsKey<T>) {
+            settingOverridesForTest.remove(setting.key)
+        }
     }
 }
 

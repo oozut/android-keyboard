@@ -77,7 +77,8 @@ public class InputLogicTestsDeadKeys extends InputTestsBase {
 
     public void testDeadCircumflexFeedback() {
         final int MODIFIER_LETTER_CIRCUMFLEX_ACCENT = 0x02C6;
-        final String EXPECTED_RESULT = "a\u02C6";
+        // The fork shows a low-line placeholder in front of the pending dead key.
+        final String EXPECTED_RESULT = "a_\u02C6";
         final EventList events = new EventList()
                 .addCodePoint('a', false)
                 .addCodePoint(MODIFIER_LETTER_CIRCUMFLEX_ACCENT, true);

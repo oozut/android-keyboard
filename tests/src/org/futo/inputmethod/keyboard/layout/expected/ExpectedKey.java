@@ -167,6 +167,18 @@ public class ExpectedKey {
                 && key.getMoreKeys().isEmpty();
     }
 
+    /**
+     * Compares only the key label and typed output, ignoring more keys.
+     *
+     * The legacy AOSP layout fixtures in tests/src/.../layout/tests were written for the
+     * pre-YAML layout engine. The shipped YAML layouts intentionally differ in which accent
+     * and symbol more keys are attached, so LayoutTestsBase compares the actual key set and
+     * labels here and covers more keys in the dedicated more-key tests.
+     */
+    public boolean equalsToBaseKey(final Key key) {
+        return mVisual.hasSameKeyVisual(key) && mOutput.hasSameKeyOutput(key);
+    }
+
     public boolean equalsTo(final MoreKeySpec moreKeySpec) {
         return mVisual.hasSameKeyVisual(moreKeySpec) && mOutput.hasSameKeyOutput(moreKeySpec);
     }

@@ -1048,6 +1048,20 @@ public final class RichInputConnection implements PrivateCommandPerformer {
     }
 
     /**
+     * Records an externally-driven selection change for a plain InputConnection.
+     *
+     * The composing wrapper tracks the editor selection itself; when it is not in use
+     * (the default on API 31+, or when the user disables the experimental IC), nothing
+     * else updates these fields, so selection-aware operations such as deleting a
+     * selection or correcting a word after a cursor move would use a stale cursor.
+     */
+    public void updateExpectedSelectionFromEditor(final int newSelStart, final int newSelEnd) {
+        if(mIC instanceof InputConnectionInternalComposingWrapper) return;
+        mExpectedSelStart = newSelStart;
+        mExpectedSelEnd = newSelEnd;
+    }
+
+    /**
      * Looks at the text just before the cursor to find out if it looks like a URL.
      *
      * The weakest point here is, if we don't have enough text bufferized, we may fail to realize

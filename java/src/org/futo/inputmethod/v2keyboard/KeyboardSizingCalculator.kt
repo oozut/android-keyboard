@@ -408,7 +408,7 @@ class KeyboardSizingCalculator(val context: Context, val uixManager: UixManager)
     private fun Int.coerceInLoosely(min: Int, max: Int) = coerceAtLeast(min).coerceAtMost(max)
 
     private fun getDefaultKeyboardWidth(): Int {
-        val window = (context as LatinIME).window.window
+        val window = (context as LatinIME).window?.window
         val width = ResourceUtils.getDefaultKeyboardWidth(window, context.resources)
 
         return width

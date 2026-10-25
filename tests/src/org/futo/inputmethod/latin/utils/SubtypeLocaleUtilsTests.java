@@ -120,31 +120,31 @@ public class SubtypeLocaleUtilsTests {
                 "hi", "hindi");
         SR = Subtypes.INSTANCE.makeSubtype(
                 "sr", "south_slavic");
-        ZZ = Subtypes.INSTANCE.makeSubtype(
+        ZZ = AdditionalSubtypeUtils.createAsciiEmojiCapableAdditionalSubtype(
                 SubtypeLocaleUtils.NO_LANGUAGE, "qwerty");
-        DE_QWERTY = Subtypes.INSTANCE.makeSubtype(
+        DE_QWERTY = AdditionalSubtypeUtils.createAsciiEmojiCapableAdditionalSubtype(
                 Locale.GERMAN.toString(), "qwerty");
-        FR_QWERTZ = Subtypes.INSTANCE.makeSubtype(
+        FR_QWERTZ = AdditionalSubtypeUtils.createAsciiEmojiCapableAdditionalSubtype(
                 Locale.FRENCH.toString(), "qwertz");
-        EN_US_AZERTY = Subtypes.INSTANCE.makeSubtype(
+        EN_US_AZERTY = AdditionalSubtypeUtils.createAsciiEmojiCapableAdditionalSubtype(
                 Locale.US.toString(), "azerty");
-        EN_UK_DVORAK = Subtypes.INSTANCE.makeSubtype(
+        EN_UK_DVORAK = AdditionalSubtypeUtils.createAsciiEmojiCapableAdditionalSubtype(
                 Locale.UK.toString(), "dvorak");
-        ES_US_COLEMAK = Subtypes.INSTANCE.makeSubtype(
+        ES_US_COLEMAK = AdditionalSubtypeUtils.createAsciiEmojiCapableAdditionalSubtype(
                 "es_US", "colemak");
-        ZZ_AZERTY = Subtypes.INSTANCE.makeSubtype(
+        ZZ_AZERTY = AdditionalSubtypeUtils.createAsciiEmojiCapableAdditionalSubtype(
                 SubtypeLocaleUtils.NO_LANGUAGE, "azerty");
-        ZZ_PC = Subtypes.INSTANCE.makeSubtype(
+        ZZ_PC = AdditionalSubtypeUtils.createAsciiEmojiCapableAdditionalSubtype(
                 SubtypeLocaleUtils.NO_LANGUAGE, "pcqwerty");
 
         HI_LATN = Subtypes.INSTANCE.makeSubtype("hi_ZZ", "qwerty");
         if (HI_LATN != null) {
-            HI_LATN_DVORAK = Subtypes.INSTANCE.makeSubtype(
+            HI_LATN_DVORAK = AdditionalSubtypeUtils.createAsciiEmojiCapableAdditionalSubtype(
                     "hi_ZZ", "dvorak");
         }
         SR_LATN = Subtypes.INSTANCE.makeSubtype("sr_ZZ", "serbian_qwertz");
         if (SR_LATN != null) {
-            SR_LATN_QWERTY = Subtypes.INSTANCE.makeSubtype(
+            SR_LATN_QWERTY = AdditionalSubtypeUtils.createAsciiEmojiCapableAdditionalSubtype(
                     "sr_ZZ", "qwerty");
         }
     }
@@ -345,35 +345,35 @@ public class SubtypeLocaleUtilsTests {
             @Override
             protected Void job(final Resources res) {
                 assertEquals("en_US", "Anglais (États-Unis)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(EN_US));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(EN_US, Locale.FRENCH));
                 assertEquals("en_GB", "Anglais (Royaume-Uni)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(EN_GB));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(EN_GB, Locale.FRENCH));
                 assertEquals("es_US", "Espagnol (États-Unis)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(ES_US));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(ES_US, Locale.FRENCH));
                 assertEquals("fr", "Français",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(FR));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(FR, Locale.FRENCH));
                 assertEquals("fr_CA", "Français (Canada)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(FR_CA));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(FR_CA, Locale.FRENCH));
                 assertEquals("fr_CH", "Français (Suisse)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(FR_CH));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(FR_CH, Locale.FRENCH));
                 assertEquals("de", "Allemand",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(DE));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(DE, Locale.FRENCH));
                 assertEquals("de_CH", "Allemand (Suisse)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(DE_CH));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(DE_CH, Locale.FRENCH));
                 assertEquals("hi", "Hindi",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(HI));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(HI, Locale.FRENCH));
                 assertEquals("sr", "Serbe",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(SR));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(SR, Locale.FRENCH));
                 assertEquals("zz", "Alphabet latin (QWERTY)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(ZZ));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(ZZ, Locale.FRENCH));
                 // These are preliminary subtypes and may not exist.
                 if (HI_LATN != null) {
                     assertEquals("hi_ZZ", "Hindi/Anglais",
-                            SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(HI_LATN));
+                            SubtypeLocaleUtils.getSubtypeDisplayName(HI_LATN, Locale.FRENCH));
                 }
                 if (SR_LATN != null) {
                     assertEquals("sr_ZZ", "Serbe (latin)",
-                            SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(SR_LATN));
+                            SubtypeLocaleUtils.getSubtypeDisplayName(SR_LATN, Locale.FRENCH));
                 }
                 return null;
             }
@@ -387,27 +387,27 @@ public class SubtypeLocaleUtilsTests {
             @Override
             protected Void job(final Resources res) {
                 assertEquals("fr qwertz", "Français (QWERTZ)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(FR_QWERTZ));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(FR_QWERTZ, Locale.FRENCH));
                 assertEquals("de qwerty", "Allemand (QWERTY)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(DE_QWERTY));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(DE_QWERTY, Locale.FRENCH));
                 assertEquals("en_US azerty", "Anglais (États-Unis) (AZERTY)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(EN_US_AZERTY));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(EN_US_AZERTY, Locale.FRENCH));
                 assertEquals("en_UK dvorak", "Anglais (Royaume-Uni) (Dvorak)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(EN_UK_DVORAK));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(EN_UK_DVORAK, Locale.FRENCH));
                 assertEquals("es_US colemak", "Espagnol (États-Unis) (Colemak)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(ES_US_COLEMAK));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(ES_US_COLEMAK, Locale.FRENCH));
                 assertEquals("zz azerty", "Alphabet latin (AZERTY)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(ZZ_AZERTY));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(ZZ_AZERTY, Locale.FRENCH));
                 assertEquals("zz pc", "Alphabet latin (PC)",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(ZZ_PC));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(ZZ_PC, Locale.FRENCH));
                 // These are preliminary subtypes and may not exist.
                 if (HI_LATN_DVORAK != null) {
                     assertEquals("hi_ZZ", "Hindi/Anglais (Dvorak)",
-                            SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(HI_LATN_DVORAK));
+                            SubtypeLocaleUtils.getSubtypeDisplayName(HI_LATN_DVORAK, Locale.FRENCH));
                 }
                 if (SR_LATN_QWERTY != null) {
                     assertEquals("sr_ZZ", "Serbe (QWERTY)",
-                            SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(SR_LATN_QWERTY));
+                            SubtypeLocaleUtils.getSubtypeDisplayName(SR_LATN_QWERTY, Locale.FRENCH));
                 }
                 return null;
             }
@@ -429,13 +429,13 @@ public class SubtypeLocaleUtilsTests {
             @Override
             protected Void job (final Resources res) {
                 assertEquals("hi", "हिन्दी",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(HI));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(HI, new Locale("hi")));
                 // These are preliminary subtypes and may not exist.
                 if (HI_LATN != null) {
                     assertEquals("hi_ZZ", "हिंग्लिश",
-                            SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(HI_LATN));
+                            SubtypeLocaleUtils.getSubtypeDisplayName(HI_LATN, new Locale("hi")));
                     assertEquals("hi_ZZ", "हिंग्लिश (Dvorak)",
-                            SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(HI_LATN_DVORAK));
+                            SubtypeLocaleUtils.getSubtypeDisplayName(HI_LATN_DVORAK, new Locale("hi")));
                 }
                 return null;
             }
@@ -457,13 +457,13 @@ public class SubtypeLocaleUtilsTests {
             @Override
             protected Void job (final Resources res) {
                 assertEquals("sr", "Српски",
-                        SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(SR));
+                        SubtypeLocaleUtils.getSubtypeDisplayName(SR, new Locale("sr")));
                 // These are preliminary subtypes and may not exist.
                 if (SR_LATN != null) {
                     assertEquals("sr_ZZ", "Српски (латиница)",
-                            SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(SR_LATN));
+                            SubtypeLocaleUtils.getSubtypeDisplayName(SR_LATN, new Locale("sr")));
                     assertEquals("sr_ZZ", "Српски (QWERTY)",
-                            SubtypeLocaleUtils.getSubtypeDisplayNameInSystemLocale(SR_LATN_QWERTY));
+                            SubtypeLocaleUtils.getSubtypeDisplayName(SR_LATN_QWERTY, new Locale("sr")));
                 }
                 return null;
             }

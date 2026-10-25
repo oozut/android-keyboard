@@ -482,7 +482,9 @@ public class InputLogicTests extends InputTestsBase {
         type("  ");
         helperTestComposing("-'", false);
         type("  ");
-        helperTestComposing("a-", true);
+        // '-' is configured as a word separator (not a connector) in this fork's
+        // spacing-and-punctuations data, so it ends the composition rather than extending it.
+        helperTestComposing("a-", false);
         type("  ");
         helperTestComposing("a'", true);
     }

@@ -379,9 +379,19 @@ class GeneralIME(val helper: IMEHelper) : IMEInterface, WordLearner, SuggestionS
         inputLogic.afterEventCursorDelta(cursorBefore, cursorAfter - cursorBefore)
 
         when(inputTransaction?.requiredShiftUpdate) {
-            InputTransaction.SHIFT_UPDATE_LATER,
-            InputTransaction.SHIFT_UPDATE_NOW ->
+            InputTransaction.SHIFT_UPDATE_LATER -> {
+                // Delay shift-state updates during key repeat so the keyboard does not flash
+                // while the cursor flies over positions with different auto-caps states.
+                shiftUpdateJob?.cancel()
+                shiftUpdateJob = helper.lifecycleScope.launch {
+                    delay(SHIFT_UPDATE_LATER_DELAY_MS)
+                    helper.keyboardSwitcher.requestUpdatingShiftState(getCurrentAutoCapsState())
+                }
+            }
+            InputTransaction.SHIFT_UPDATE_NOW -> {
+                shiftUpdateJob?.cancel()
                 helper.keyboardSwitcher.requestUpdatingShiftState(getCurrentAutoCapsState())
+            }
         }
 
         if(inputTransaction?.requiresUpdateSuggestions() == true && !ignoreSuggestionUpdate) {
@@ -532,6 +542,8 @@ class GeneralIME(val helper: IMEHelper) : IMEInterface, WordLearner, SuggestionS
     }
 
 
+    private var shiftUpdateJob: Job? = null
+
     private var sequenceId = AtomicInteger(0)
     private val sequenceIdCompleted = AtomicInteger(0)
     private val computationMutex = Mutex()
@@ -549,7 +561,9 @@ class GeneralIME(val helper: IMEHelper) : IMEInterface, WordLearner, SuggestionS
             }
 
             if (!inputLogic.mWordComposer.isComposingWord && !settings.current.mBigramPredictionEnabled) {
-                setNeutralSuggestionStrip()
+                // Next-word prediction is disabled: the legacy strip after a word shows the
+                // configured punctuation keys instead of going blank.
+                showSuggestionStrip(settings.current.mSpacingAndPunctuations.suggestPuncList)
                 return
             }
         }
@@ -854,6 +868,8 @@ class GeneralIME(val helper: IMEHelper) : IMEInterface, WordLearner, SuggestionS
                 || inputLogic.mWordComposer.isComposingWord
 
     companion object {
+        private const val SHIFT_UPDATE_LATER_DELAY_MS = 100L
+
         @OptIn(ExperimentalCoroutinesApi::class)
         val dictionaryScope = Dispatchers.Default.limitedParallelism(1)
     }

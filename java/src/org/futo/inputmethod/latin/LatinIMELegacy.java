@@ -490,13 +490,15 @@ public class LatinIMELegacy implements KeyboardActionListener,
         // view is not displayed we have no means of showing suggestions anyway, and if it is then
         // we want to show suggestions anyway.
         final SettingsValues settingsValues = mSettings.getCurrent();
-        if (mInputMethodService.isInputViewShown()) {
-            mImeManager.onUpdateSelection(
-                    oldSelStart, oldSelEnd,
-                    newSelStart, newSelEnd,
-                    composingSpanStart, composingSpanEnd
-            );
-        }
+        // Always forward selection updates. The input view may legitimately be hidden
+        // (for example in instrumentation tests, or while a hardware keyboard is used),
+        // but the input logic still needs to keep its cached cursor and composition in
+        // sync with the editor.
+        mImeManager.onUpdateSelection(
+                oldSelStart, oldSelEnd,
+                newSelStart, newSelEnd,
+                composingSpanStart, composingSpanEnd
+        );
     }
 
     /**

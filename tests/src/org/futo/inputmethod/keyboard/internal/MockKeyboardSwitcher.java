@@ -100,6 +100,10 @@ public class MockKeyboardSwitcher implements SwitchActions {
         mState.onLoadKeyboard(null, mAutoCapsState, null, null);
     }
 
+    public void expireDoubleTapTimeout() {
+        mState.expireDoubleTapTimeout();
+    }
+
     public void saveKeyboardState() {
         mState.onSaveKeyboardState();
     }

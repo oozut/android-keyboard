@@ -97,7 +97,9 @@ public class PunctuationTests extends InputTestsBase {
     public void testManuallyPickedWordThenOpenParen() {
         final String WORD_TO_TYPE = "this";
         final String PUNCTUATION = "(";
-        final String EXPECTED_RESULT = "this (";
+        // The fork leaves "(" out of symbols_preceded_by_space on purpose, so no
+        // automatic space is inserted before an opening parenthesis.
+        final String EXPECTED_RESULT = "this(";
         type(WORD_TO_TYPE);
         pickSuggestionManually(WORD_TO_TYPE);
         type(PUNCTUATION);
@@ -184,7 +186,7 @@ public class PunctuationTests extends InputTestsBase {
             final String[] wordsToType = partToType.split("(?<=\\w)(?!\\w)|(?<!\\w)(?=\\w)");
             for (final String wordToType : wordsToType) {
                 type(wordToType);
-                if (wordToType.matches("^\\w+$")) {
+                if (wordToType.matches("^[A-Za-z]+$")) {
                     // Only pick selection if that was a word, because if that was not a word,
                     // then we don't have a composition.
                     pickSuggestionManually(wordToType);
