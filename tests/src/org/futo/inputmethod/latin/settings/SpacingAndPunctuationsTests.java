@@ -117,9 +117,9 @@ public class SpacingAndPunctuationsTests {
         assertTrue("Space",       sp.isWordSeparator(' '));
         assertTrue("Exclamation", sp.isWordSeparator('!'));
         assertTrue("Quotation",   sp.isWordSeparator('"'));
-        assertFalse("Number",     sp.isWordSeparator('#'));
-        assertFalse("Dollar",     sp.isWordSeparator('$'));
-        assertFalse("Percent",    sp.isWordSeparator('%'));
+        assertTrue("Number",      sp.isWordSeparator('#'));
+        assertTrue("Dollar",      sp.isWordSeparator('$'));
+        assertTrue("Percent",     sp.isWordSeparator('%'));
         assertTrue("Ampersand",   sp.isWordSeparator('&'));
         assertFalse("Apostrophe", sp.isWordSeparator('\''));
         assertTrue("L Paren",     sp.isWordSeparator('('));
@@ -127,7 +127,7 @@ public class SpacingAndPunctuationsTests {
         assertTrue("Asterisk",    sp.isWordSeparator('*'));
         assertTrue("Plus",        sp.isWordSeparator('+'));
         assertTrue("Comma",       sp.isWordSeparator(','));
-        assertFalse("Minus",      sp.isWordSeparator('-'));
+        assertTrue("Minus",       sp.isWordSeparator('-'));
         assertTrue("Period",      sp.isWordSeparator('.'));
         assertTrue("Slash",       sp.isWordSeparator('/'));
         assertTrue("Colon",       sp.isWordSeparator(':'));
@@ -138,15 +138,15 @@ public class SpacingAndPunctuationsTests {
         assertTrue("Question",    sp.isWordSeparator('?'));
         assertFalse("Atmark",     sp.isWordSeparator('@'));
         assertTrue("L S Bracket", sp.isWordSeparator('['));
-        assertFalse("B Slash",    sp.isWordSeparator('\\'));
+        assertTrue("B Slash",     sp.isWordSeparator('\\'));
         assertTrue("R S Bracket", sp.isWordSeparator(']'));
         assertFalse("Circumflex", sp.isWordSeparator('^'));
         assertTrue("Underscore",  sp.isWordSeparator('_'));
-        assertFalse("Grave",      sp.isWordSeparator('`'));
+        assertTrue("Grave",       sp.isWordSeparator('`'));
         assertTrue("L C Brace",   sp.isWordSeparator('{'));
         assertTrue("V Line",      sp.isWordSeparator('|'));
         assertTrue("R C Brace",   sp.isWordSeparator('}'));
-        assertFalse("Tilde",      sp.isWordSeparator('~'));
+        assertTrue("Tilde",       sp.isWordSeparator('~'));
     }
 
     @Test
@@ -157,10 +157,9 @@ public class SpacingAndPunctuationsTests {
         testingStandardWordSeparator(ARMENIA_ARMENIAN);
         assertTrue(ARMENIA_ARMENIAN.isWordSeparator(ARMENIAN_FULL_STOP));
         assertTrue(ARMENIA_ARMENIAN.isWordSeparator(ARMENIAN_COMMA));
-        // TODO: We should fix these.
         testingStandardWordSeparator(ARMENIAN);
-        assertFalse(ARMENIAN.isWordSeparator(ARMENIAN_FULL_STOP));
-        assertFalse(ARMENIAN.isWordSeparator(ARMENIAN_COMMA));
+        assertTrue(ARMENIAN.isWordSeparator(ARMENIAN_FULL_STOP));
+        assertTrue(ARMENIAN.isWordSeparator(ARMENIAN_COMMA));
     }
 
     private static void testingStandardWordConnector(final SpacingAndPunctuations sp) {
@@ -179,7 +178,7 @@ public class SpacingAndPunctuationsTests {
         assertFalse("Asterisk",    sp.isWordConnector('*'));
         assertFalse("Plus",        sp.isWordConnector('+'));
         assertFalse("Comma",       sp.isWordConnector(','));
-        assertTrue("Minus",        sp.isWordConnector('-'));
+        assertFalse("Minus",       sp.isWordConnector('-'));
         assertFalse("Period",      sp.isWordConnector('.'));
         assertFalse("Slash",       sp.isWordConnector('/'));
         assertFalse("Colon",       sp.isWordConnector(':'));
@@ -190,7 +189,7 @@ public class SpacingAndPunctuationsTests {
         assertFalse("Question",    sp.isWordConnector('?'));
         assertFalse("Atmark",      sp.isWordConnector('@'));
         assertFalse("L S Bracket", sp.isWordConnector('['));
-        assertFalse("B Slash",     sp.isWordConnector('\\'));
+        assertTrue("B Slash",      sp.isWordConnector('\\'));
         assertFalse("R S Bracket", sp.isWordConnector(']'));
         assertFalse("Circumflex",  sp.isWordConnector('^'));
         assertFalse("Underscore",  sp.isWordConnector('_'));
@@ -219,9 +218,9 @@ public class SpacingAndPunctuationsTests {
         assertFalse("Number",      sp.isUsuallyPrecededBySpace('#'));
         assertFalse("Dollar",      sp.isUsuallyPrecededBySpace('$'));
         assertFalse("Percent",     sp.isUsuallyPrecededBySpace('%'));
-        assertTrue("Ampersand",    sp.isUsuallyPrecededBySpace('&'));
+        assertFalse("Ampersand",   sp.isUsuallyPrecededBySpace('&'));
         assertFalse("Apostrophe",  sp.isUsuallyPrecededBySpace('\''));
-        assertTrue("L Paren",      sp.isUsuallyPrecededBySpace('('));
+        assertFalse("L Paren",     sp.isUsuallyPrecededBySpace('('));
         assertFalse("R Paren",     sp.isUsuallyPrecededBySpace(')'));
         assertFalse("Asterisk",    sp.isUsuallyPrecededBySpace('*'));
         assertFalse("Plus",        sp.isUsuallyPrecededBySpace('+'));
@@ -236,13 +235,13 @@ public class SpacingAndPunctuationsTests {
         assertFalse("R Angle",     sp.isUsuallyPrecededBySpace('>'));
         //assertFalse("Question",    sp.isUsuallyPrecededBySpace('?'));
         assertFalse("Atmark",      sp.isUsuallyPrecededBySpace('@'));
-        assertTrue("L S Bracket",  sp.isUsuallyPrecededBySpace('['));
+        assertFalse("L S Bracket", sp.isUsuallyPrecededBySpace('['));
         assertFalse("B Slash",     sp.isUsuallyPrecededBySpace('\\'));
         assertFalse("R S Bracket", sp.isUsuallyPrecededBySpace(']'));
         assertFalse("Circumflex",  sp.isUsuallyPrecededBySpace('^'));
         assertFalse("Underscore",  sp.isUsuallyPrecededBySpace('_'));
         assertFalse("Grave",       sp.isUsuallyPrecededBySpace('`'));
-        assertTrue("L C Brace",    sp.isUsuallyPrecededBySpace('{'));
+        assertFalse("L C Brace",   sp.isUsuallyPrecededBySpace('{'));
         assertFalse("V Line",      sp.isUsuallyPrecededBySpace('|'));
         assertFalse("R C Brace",   sp.isUsuallyPrecededBySpace('}'));
         assertFalse("Tilde",       sp.isUsuallyPrecededBySpace('~'));
@@ -281,7 +280,7 @@ public class SpacingAndPunctuationsTests {
         assertFalse("Number",      sp.isUsuallyFollowedBySpace('#'));
         assertFalse("Dollar",      sp.isUsuallyFollowedBySpace('$'));
         assertFalse("Percent",     sp.isUsuallyFollowedBySpace('%'));
-        assertTrue("Ampersand",    sp.isUsuallyFollowedBySpace('&'));
+        assertFalse("Ampersand",   sp.isUsuallyFollowedBySpace('&'));
         assertFalse("Apostrophe",  sp.isUsuallyFollowedBySpace('\''));
         assertFalse("L Paren",     sp.isUsuallyFollowedBySpace('('));
         assertTrue("R Paren",      sp.isUsuallyFollowedBySpace(')'));
@@ -321,41 +320,41 @@ public class SpacingAndPunctuationsTests {
     }
 
     private static void testingStandardSentenceSeparator(final SpacingAndPunctuations sp) {
-        assertFalse("Tab",         sp.isUsuallyFollowedBySpace('\t'));
-        assertFalse("Newline",     sp.isUsuallyFollowedBySpace('\n'));
-        assertFalse("Space",       sp.isUsuallyFollowedBySpace(' '));
-        assertFalse("Exclamation", sp.isUsuallyFollowedBySpace('!'));
-        assertFalse("Quotation",   sp.isUsuallyFollowedBySpace('"'));
-        assertFalse("Number",      sp.isUsuallyFollowedBySpace('#'));
-        assertFalse("Dollar",      sp.isUsuallyFollowedBySpace('$'));
-        assertFalse("Percent",     sp.isUsuallyFollowedBySpace('%'));
-        assertFalse("Ampersand",   sp.isUsuallyFollowedBySpace('&'));
-        assertFalse("Apostrophe",  sp.isUsuallyFollowedBySpace('\''));
-        assertFalse("L Paren",     sp.isUsuallyFollowedBySpace('('));
-        assertFalse("R Paren",     sp.isUsuallyFollowedBySpace(')'));
-        assertFalse("Asterisk",    sp.isUsuallyFollowedBySpace('*'));
-        assertFalse("Plus",        sp.isUsuallyFollowedBySpace('+'));
-        assertFalse("Comma",       sp.isUsuallyFollowedBySpace(','));
-        assertFalse("Minus",       sp.isUsuallyFollowedBySpace('-'));
-        assertTrue("Period",       sp.isUsuallyFollowedBySpace('.'));
-        assertFalse("Slash",       sp.isUsuallyFollowedBySpace('/'));
-        assertFalse("Colon",       sp.isUsuallyFollowedBySpace(':'));
-        assertFalse("Semicolon",   sp.isUsuallyFollowedBySpace(';'));
-        assertFalse("L Angle",     sp.isUsuallyFollowedBySpace('<'));
-        assertFalse("Equal",       sp.isUsuallyFollowedBySpace('='));
-        assertFalse("R Angle",     sp.isUsuallyFollowedBySpace('>'));
-        assertFalse("Question",    sp.isUsuallyFollowedBySpace('?'));
-        assertFalse("Atmark",      sp.isUsuallyFollowedBySpace('@'));
-        assertFalse("L S Bracket", sp.isUsuallyFollowedBySpace('['));
-        assertFalse("B Slash",     sp.isUsuallyFollowedBySpace('\\'));
-        assertFalse("R S Bracket", sp.isUsuallyFollowedBySpace(']'));
-        assertFalse("Circumflex",  sp.isUsuallyFollowedBySpace('^'));
-        assertFalse("Underscore",  sp.isUsuallyFollowedBySpace('_'));
-        assertFalse("Grave",       sp.isUsuallyFollowedBySpace('`'));
-        assertFalse("L C Brace",   sp.isUsuallyFollowedBySpace('{'));
-        assertFalse("V Line",      sp.isUsuallyFollowedBySpace('|'));
-        assertFalse("R C Brace",   sp.isUsuallyFollowedBySpace('}'));
-        assertFalse("Tilde",       sp.isUsuallyFollowedBySpace('~'));
+        assertFalse("Tab",         sp.isSentenceSeparator('\t'));
+        assertFalse("Newline",     sp.isSentenceSeparator('\n'));
+        assertFalse("Space",       sp.isSentenceSeparator(' '));
+        assertFalse("Exclamation", sp.isSentenceSeparator('!'));
+        assertFalse("Quotation",   sp.isSentenceSeparator('"'));
+        assertFalse("Number",      sp.isSentenceSeparator('#'));
+        assertFalse("Dollar",      sp.isSentenceSeparator('$'));
+        assertFalse("Percent",     sp.isSentenceSeparator('%'));
+        assertFalse("Ampersand",   sp.isSentenceSeparator('&'));
+        assertFalse("Apostrophe",  sp.isSentenceSeparator('\''));
+        assertFalse("L Paren",     sp.isSentenceSeparator('('));
+        assertFalse("R Paren",     sp.isSentenceSeparator(')'));
+        assertFalse("Asterisk",    sp.isSentenceSeparator('*'));
+        assertFalse("Plus",        sp.isSentenceSeparator('+'));
+        assertFalse("Comma",       sp.isSentenceSeparator(','));
+        assertFalse("Minus",       sp.isSentenceSeparator('-'));
+        assertTrue("Period",       sp.isSentenceSeparator('.'));
+        assertFalse("Slash",       sp.isSentenceSeparator('/'));
+        assertFalse("Colon",       sp.isSentenceSeparator(':'));
+        assertFalse("Semicolon",   sp.isSentenceSeparator(';'));
+        assertFalse("L Angle",     sp.isSentenceSeparator('<'));
+        assertFalse("Equal",       sp.isSentenceSeparator('='));
+        assertFalse("R Angle",     sp.isSentenceSeparator('>'));
+        assertFalse("Question",    sp.isSentenceSeparator('?'));
+        assertFalse("Atmark",      sp.isSentenceSeparator('@'));
+        assertFalse("L S Bracket", sp.isSentenceSeparator('['));
+        assertFalse("B Slash",     sp.isSentenceSeparator('\\'));
+        assertFalse("R S Bracket", sp.isSentenceSeparator(']'));
+        assertFalse("Circumflex",  sp.isSentenceSeparator('^'));
+        assertFalse("Underscore",  sp.isSentenceSeparator('_'));
+        assertFalse("Grave",       sp.isSentenceSeparator('`'));
+        assertFalse("L C Brace",   sp.isSentenceSeparator('{'));
+        assertFalse("V Line",      sp.isSentenceSeparator('|'));
+        assertFalse("R C Brace",   sp.isSentenceSeparator('}'));
+        assertFalse("Tilde",       sp.isSentenceSeparator('~'));
     }
 
     @Test
@@ -364,7 +363,7 @@ public class SpacingAndPunctuationsTests {
         try {
             testingStandardSentenceSeparator(ARMENIA_ARMENIAN);
             fail("Armenian Sentence Separator");
-        } catch (final AssertionFailedError e) {
+        } catch (final AssertionError e) {
             assertEquals("Period", e.getMessage());
         }
         assertTrue(ARMENIA_ARMENIAN.isSentenceSeparator(ARMENIAN_FULL_STOP));
@@ -379,9 +378,8 @@ public class SpacingAndPunctuationsTests {
         assertFalse(THAI.currentLanguageHasSpaces);
         assertFalse(CAMBODIA_KHMER.currentLanguageHasSpaces);
         assertFalse(LAOS_LAO.currentLanguageHasSpaces);
-        // TODO: We should fix these.
-        assertTrue(KHMER.currentLanguageHasSpaces);
-        assertTrue(LAO.currentLanguageHasSpaces);
+        assertFalse(KHMER.currentLanguageHasSpaces);
+        assertFalse(LAO.currentLanguageHasSpaces);
     }
 
     @Test
@@ -405,11 +403,11 @@ public class SpacingAndPunctuationsTests {
 
     // Punctuations for phone.
     private static final String[] PUNCTUATION_LABELS_PHONE = {
-        "!", "?", ",", ":", ";", "\"", "(", ")", "'", "-", "/", "@", "_"
+        "!", "?", "\\", ":", ";", "\"", "(", ")", "'", "-", "/", "@", "_"
     };
     private static final String[] PUNCTUATION_WORDS_PHONE_LTR = PUNCTUATION_LABELS_PHONE;
     private static final String[] PUNCTUATION_WORDS_PHONE_HEBREW = {
-        "!", "?", ",", ":", ";", "\"", ")", "(", "'", "-", "/", "@", "_"
+        "!", "?", "\\", ":", ";", "\"", "(", ")", "'", "-", "/", "@", "_"
     };
     // U+061F: "؟" ARABIC QUESTION MARK
     // U+060C: "،" ARABIC COMMA

@@ -19,22 +19,13 @@ package org.futo.inputmethod.latin.network;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.eq;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
-
 import androidx.test.filters.SmallTest;
 import androidx.test.runner.AndroidJUnit4;
 
 import org.futo.inputmethod.latin.network.BlockingHttpClient.ResponseProcessor;
 
-import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.Mock;
-import org.mockito.Mockito;
-import org.mockito.MockitoAnnotations;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
@@ -52,17 +43,57 @@ import java.util.Random;
 @SmallTest
 @RunWith(AndroidJUnit4.class)
 public class BlockingHttpClientTests {
-    @Mock HttpURLConnection mMockHttpConnection;
+    /** Hand-written fake; avoids Dexmaker, which cannot load writable dex files on API 34+. */
+    private static class FakeHttpConnection extends HttpURLConnection {
+        int mResponseCode = HTTP_OK;
+        InputStream mInputStream = new ByteArrayInputStream(new byte[0]);
+        OutputStream mOutputStream = new ByteArrayOutputStream();
+        boolean mDisconnected;
 
-    @Before
-    public void setUp() throws Exception {
-        MockitoAnnotations.initMocks(this);
+        FakeHttpConnection() {
+            super(null);
+        }
+
+        @Override
+        public void disconnect() {
+            mDisconnected = true;
+        }
+
+        @Override
+        public boolean usingProxy() {
+            return false;
+        }
+
+        @Override
+        public void connect() {
+        }
+
+        @Override
+        public int getResponseCode() {
+            return mResponseCode;
+        }
+
+        @Override
+        public String getResponseMessage() {
+            return "fake";
+        }
+
+        @Override
+        public InputStream getInputStream() {
+            return mInputStream;
+        }
+
+        @Override
+        public OutputStream getOutputStream() {
+            return mOutputStream;
+        }
     }
 
     @Test
     public void testError_badGateway() throws IOException, AuthException {
-        when(mMockHttpConnection.getResponseCode()).thenReturn(HttpURLConnection.HTTP_BAD_GATEWAY);
-        final BlockingHttpClient client = new BlockingHttpClient(mMockHttpConnection);
+        final FakeHttpConnection connection = new FakeHttpConnection();
+        connection.mResponseCode = HttpURLConnection.HTTP_BAD_GATEWAY;
+        final BlockingHttpClient client = new BlockingHttpClient(connection);
         final FakeErrorResponseProcessor processor = new FakeErrorResponseProcessor();
 
         try {
@@ -76,9 +107,9 @@ public class BlockingHttpClientTests {
 
     @Test
     public void testError_clientTimeout() throws Exception {
-        when(mMockHttpConnection.getResponseCode()).thenReturn(
-                HttpURLConnection.HTTP_CLIENT_TIMEOUT);
-        final BlockingHttpClient client = new BlockingHttpClient(mMockHttpConnection);
+        final FakeHttpConnection connection = new FakeHttpConnection();
+        connection.mResponseCode = HttpURLConnection.HTTP_CLIENT_TIMEOUT;
+        final BlockingHttpClient client = new BlockingHttpClient(connection);
         final FakeErrorResponseProcessor processor = new FakeErrorResponseProcessor();
 
         try {
@@ -92,10 +123,9 @@ public class BlockingHttpClientTests {
 
     @Test
     public void testError_forbiddenWithRequest() throws Exception {
-        final OutputStream mockOutputStream = Mockito.mock(OutputStream.class);
-        when(mMockHttpConnection.getResponseCode()).thenReturn(HttpURLConnection.HTTP_FORBIDDEN);
-        when(mMockHttpConnection.getOutputStream()).thenReturn(mockOutputStream);
-        final BlockingHttpClient client = new BlockingHttpClient(mMockHttpConnection);
+        final FakeHttpConnection connection = new FakeHttpConnection();
+        connection.mResponseCode = HttpURLConnection.HTTP_FORBIDDEN;
+        final BlockingHttpClient client = new BlockingHttpClient(connection);
         final FakeErrorResponseProcessor processor = new FakeErrorResponseProcessor();
 
         try {
@@ -104,7 +134,8 @@ public class BlockingHttpClientTests {
         } catch (HttpException e) {
             assertEquals(HttpURLConnection.HTTP_FORBIDDEN, e.getHttpStatusCode());
         }
-        verify(mockOutputStream).write(any(byte[].class), eq(0), eq(100));
+        assertTrue("Request was not written", connection.mOutputStream instanceof ByteArrayOutputStream);
+        assertEquals(100, ((ByteArrayOutputStream) connection.mOutputStream).size());
     }
 
     @Test
@@ -112,9 +143,10 @@ public class BlockingHttpClientTests {
         final Random rand = new Random();
         byte[] response = new byte[100];
         rand.nextBytes(response);
-        when(mMockHttpConnection.getResponseCode()).thenReturn(HttpURLConnection.HTTP_OK);
-        when(mMockHttpConnection.getInputStream()).thenReturn(new ByteArrayInputStream(response));
-        final BlockingHttpClient client = new BlockingHttpClient(mMockHttpConnection);
+        final FakeHttpConnection connection = new FakeHttpConnection();
+        connection.mResponseCode = HttpURLConnection.HTTP_OK;
+        connection.mInputStream = new ByteArrayInputStream(response);
+        final BlockingHttpClient client = new BlockingHttpClient(connection);
         final FakeSuccessResponseProcessor processor =
                 new FakeSuccessResponseProcessor(response);
 
@@ -124,14 +156,13 @@ public class BlockingHttpClientTests {
 
     @Test
     public void testSuccess() throws Exception {
-        final OutputStream mockOutputStream = Mockito.mock(OutputStream.class);
+        final FakeHttpConnection connection = new FakeHttpConnection();
         final Random rand = new Random();
         byte[] response = new byte[100];
         rand.nextBytes(response);
-        when(mMockHttpConnection.getOutputStream()).thenReturn(mockOutputStream);
-        when(mMockHttpConnection.getResponseCode()).thenReturn(HttpURLConnection.HTTP_OK);
-        when(mMockHttpConnection.getInputStream()).thenReturn(new ByteArrayInputStream(response));
-        final BlockingHttpClient client = new BlockingHttpClient(mMockHttpConnection);
+        connection.mResponseCode = HttpURLConnection.HTTP_OK;
+        connection.mInputStream = new ByteArrayInputStream(response);
+        final BlockingHttpClient client = new BlockingHttpClient(connection);
         final FakeSuccessResponseProcessor processor =
                 new FakeSuccessResponseProcessor(response);
 

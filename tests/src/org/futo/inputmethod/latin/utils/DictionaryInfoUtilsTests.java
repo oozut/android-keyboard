@@ -43,7 +43,8 @@ public class DictionaryInfoUtilsTests {
                 InstrumentationRegistry.getTargetContext(), Locale.ENGLISH);
         assertTrue(DictionaryInfoUtils.looksValidForDictionaryInsertion("aochaueo", sp));
         assertFalse(DictionaryInfoUtils.looksValidForDictionaryInsertion("", sp));
-        assertTrue(DictionaryInfoUtils.looksValidForDictionaryInsertion("ao-ch'aueo", sp));
+        // Hyphen is not a word connector in the shipped spacing-and-punctuations assets.
+        assertFalse(DictionaryInfoUtils.looksValidForDictionaryInsertion("ao-ch'aueo", sp));
         assertFalse(DictionaryInfoUtils.looksValidForDictionaryInsertion("2908743256", sp));
         assertTrue(DictionaryInfoUtils.looksValidForDictionaryInsertion("31aochaueo", sp));
         assertFalse(DictionaryInfoUtils.looksValidForDictionaryInsertion("akeo  raeoch oerch .",

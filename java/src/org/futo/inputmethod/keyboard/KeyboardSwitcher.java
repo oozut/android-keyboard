@@ -223,6 +223,11 @@ public final class KeyboardSwitcher implements SwitchActions {
     private void setKeyboard(
             @Nonnull final KeyboardLayoutElement element,
             @Nonnull final KeyboardSwitchState toggleState) {
+        // A settings flow can request an invalidation before the first layout set
+        // has been loaded; onStartInputView will create it and load the keyboard.
+        if (mKeyboardLayoutSet == null) {
+            return;
+        }
         // Make {@link MainKeyboardView} visible and hide {@link EmojiPalettesView}.
         final SettingsValues currentSettingsValues = Settings.getInstance().getCurrent();
         setMainKeyboardFrame(currentSettingsValues, toggleState);

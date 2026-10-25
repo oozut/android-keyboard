@@ -9,6 +9,7 @@ import android.graphics.Color
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.Bundle
+import android.os.Looper
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -142,7 +143,14 @@ open class InputMethodServiceCompose : InputMethodService(), LifecycleOwner, Vie
     override fun onCreate() {
         super.onCreate()
 
-        mLifecycleRegistry = LifecycleRegistry(this)
+        // The lifecycle registry normally asserts main-thread access. The legacy
+        // instrumentation tests drive the IME on their own Looper thread (so that
+        // runMessages() can pump the IME handlers), so use the unsafe registry there.
+        mLifecycleRegistry = if (Looper.myLooper() == Looper.getMainLooper()) {
+            LifecycleRegistry(this)
+        } else {
+            LifecycleRegistry.createUnsafe(this)
+        }
         mLifecycleRegistry.currentState = Lifecycle.State.INITIALIZED
 
         mViewModelStore = ViewModelStore()

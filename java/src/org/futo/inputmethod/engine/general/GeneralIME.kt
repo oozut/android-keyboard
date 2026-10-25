@@ -49,6 +49,8 @@ import org.futo.inputmethod.latin.uix.isDirectBootUnlocked
 import org.futo.inputmethod.latin.utils.AsyncResultHolder
 import org.futo.inputmethod.latin.xlm.LanguageModelFacilitator
 import org.futo.inputmethod.v2keyboard.KeyboardLayoutSetV2
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 interface WordLearner {
@@ -804,6 +806,34 @@ class GeneralIME(val helper: IMEHelper) : IMEInterface, WordLearner, SuggestionS
     }
 
     fun debugInfoS() = debugInfo().joinToString("\n")
+
+    @UsedForTesting
+    override fun getSuggestedWordsForTest(): SuggestedWords = inputLogic.mSuggestedWords
+
+    @UsedForTesting
+    override fun waitForLoadingDictionaries(timeout: Long, unit: TimeUnit) {
+        dictionaryFacilitator.waitForLoadingDictionariesForTesting(timeout, unit)
+    }
+
+    @UsedForTesting
+    override fun replaceDictionariesForTest(locale: Locale) {
+        val settingsValues = settings.current
+        dictionaryFacilitator.resetDictionaries(
+            context,
+            arrayListOf(locale),
+            settingsValues.mUseContactsDict,
+            settingsValues.mUsePersonalizedDicts,
+            false /* forceReloadMainDictionary */,
+            settingsValues.mAccount,
+            "" /* dictionaryNamePrefix */,
+            availabilityListener /* DictionaryInitializationListener */
+        )
+    }
+
+    @UsedForTesting
+    override fun clearPersonalizedDictionariesForTest() {
+        dictionaryFacilitator.clearUserHistoryDictionary(context)
+    }
 
     @UsedForTesting
     override fun recycle() {

@@ -139,8 +139,9 @@ public class StringUtilsTests {
         assert_toTitleCaseOfKeyCode(TURKEY, 0x0069, 0x0130); // i -> İ
         assert_toTitleCaseOfKeyCode(TURKEY, 0x0131, 0x0049); // ı -> I
         // U+00DF: "ß" LATIN SMALL LETTER SHARP S
-        // The title case of "ß" is "SS".
-        assert_toTitleCaseOfKeyCode(US, 0x00DF, Constants.CODE_UNSPECIFIED);
+        // Modern ICU maps this to the single code point U+1E9E (CAPITAL SHARP S) rather than
+        // the two-character "SS" used by older Android releases.
+        assert_toTitleCaseOfKeyCode(US, 0x00DF, 0x1E9E);
         // U+03AC: "ά" GREEK SMALL LETTER ALPHA WITH TONOS
         // U+0386: "Ά" GREEK CAPITAL LETTER ALPHA WITH TONOS
         assert_toTitleCaseOfKeyCode(GREECE, 0x03AC, 0x0386);

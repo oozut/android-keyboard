@@ -1,6 +1,7 @@
 package org.futo.inputmethod.latin
 
 import android.os.Build
+import android.text.SpannableStringBuilder
 import android.util.Log
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputConnectionWrapper
@@ -95,14 +96,14 @@ class InputConnectionWithBufferingWrapper(target: InputConnection) : InputConnec
         }
     }
 
-    private fun applyBefore(beforeTxt: String): String {
+    private fun applyBefore(beforeTxt: CharSequence): CharSequence {
         var result = beforeTxt
         commandQueue.toList().forEach { cmd ->
             when(cmd) {
-                is InputCommand.Commit -> result += cmd.text
+                is InputCommand.Commit -> result = SpannableStringBuilder(result).append(cmd.text)
                 is InputCommand.Delete -> {
                     val deleteChars = cmd.before.coerceAtLeast(0).coerceAtMost(result.length)
-                    result = result.dropLast(deleteChars)
+                    result = result.subSequence(0, result.length - deleteChars)
                 }
                 else -> {}
             }
@@ -110,14 +111,14 @@ class InputConnectionWithBufferingWrapper(target: InputConnection) : InputConnec
         return result
     }
 
-    private fun applyAfter(afterTxt: String): String {
+    private fun applyAfter(afterTxt: CharSequence): CharSequence {
         var result = afterTxt
         commandQueue.toList().forEach { cmd ->
             when(cmd) {
                 is InputCommand.Commit -> { }
                 is InputCommand.Delete -> {
                     val skipChars = cmd.after.coerceAtLeast(0).coerceAtMost(result.length)
-                    result = result.substring(skipChars)
+                    result = result.subSequence(skipChars, result.length)
                 }
                 else -> {}
             }
@@ -161,11 +162,11 @@ class InputConnectionWithBufferingWrapper(target: InputConnection) : InputConnec
     }
 
     override fun getTextBeforeCursor(n: Int, flags: Int): CharSequence? {
-        return applyBefore(super.getTextBeforeCursor(n + extraHeadroom(), flags)?.toString() ?: return null).takeLast(n)
+        return applyBefore(super.getTextBeforeCursor(n + extraHeadroom(), flags) ?: return null).takeLast(n)
     }
 
     override fun getTextAfterCursor(n: Int, flags: Int): CharSequence? {
-        return applyAfter(super.getTextAfterCursor(n + extraHeadroom(), flags)?.toString() ?: return null).take(n)
+        return applyAfter(super.getTextAfterCursor(n + extraHeadroom(), flags) ?: return null).take(n)
     }
 
     override fun setComposingRegion(start: Int, end: Int): Boolean {

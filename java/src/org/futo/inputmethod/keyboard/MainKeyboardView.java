@@ -264,7 +264,11 @@ public final class MainKeyboardView extends KeyboardView implements DrawingProxy
 
         mDrawingPreviewPlacerView = drawingPreviewPlacerView;
 
-        final LayoutInflater inflater = LayoutInflater.from(getContext());
+        // LayoutInflater.from(serviceContext) returns an inflater bound to the
+        // service's base ContextImpl on some Android versions. Clone it so the
+        // inflated more-keys keyboard keeps this view's DynamicThemeProviderOwner.
+        final LayoutInflater inflater = LayoutInflater.from(getContext())
+                .cloneInContext(getContext());
         mMoreKeysKeyboardContainer = inflater.inflate(moreKeysKeyboardLayoutId, null);
         mLanguageOnSpacebarFadeoutAnimator = loadObjectAnimator(
                 languageOnSpacebarFadeoutAnimatorResId, this);

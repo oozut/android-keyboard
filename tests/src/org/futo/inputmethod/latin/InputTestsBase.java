@@ -19,6 +19,8 @@ package org.futo.inputmethod.latin;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.graphics.Point;
+import android.os.Bundle;
+import android.os.Handler;
 import android.os.Looper;
 import android.preference.PreferenceManager;
 import android.test.ServiceTestCase;
@@ -35,6 +37,8 @@ import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodSubtype;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+
+import androidx.test.platform.app.InstrumentationRegistry;
 
 import org.futo.inputmethod.compat.InputMethodSubtypeCompatUtils;
 import org.futo.inputmethod.event.Event;
@@ -81,6 +85,8 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
     protected InputConnection mInputConnection;
     private boolean mPreviousAutoCorrectSetting;
     private boolean mPreviousBigramPredictionSettings;
+    private boolean mPreviousTransformerLmSetting;
+    private int mPreviousAltSpacesMode;
 
     public InputTestsBase(Class<LatinIME> serviceClass) {
         super(serviceClass);
@@ -170,6 +176,15 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
         return previousSetting;
     }
 
+    protected int setIntPreference(final String key, final int value, final int defaultValue) {
+        final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getService());
+        final int previousSetting = prefs.getInt(key, defaultValue);
+        final SharedPreferences.Editor editor = prefs.edit();
+        editor.putInt(key, value);
+        editor.apply();
+        return previousSetting;
+    }
+
     protected boolean getBooleanPreference(final String key, final boolean defaultValue) {
         return PreferenceManager.getDefaultSharedPreferences(getService())
                 .getBoolean(key, defaultValue);
@@ -197,6 +212,15 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
         return ei;
     }
 
+    protected boolean useTransformerLanguageModelForTesting() {
+        // Most of the suite predates the native transformer LM. Loading it for every test is
+        // both slow and unstable (the native graph builder crashed after several hundred
+        // cases), so tests that need it opt in explicitly:
+        //   am instrument ... -e useTransformerLm true
+        final Bundle arguments = InstrumentationRegistry.getArguments();
+        return "true".equals(arguments.getString("useTransformerLm"));
+    }
+
     @Override
     protected void setUp() throws Exception {
         super.setUp();
@@ -210,18 +234,33 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
             Looper.prepare();
         }
         setupService();
-        mLatinIMELegacy = getService().getLatinIMELegacy();
+        mLatinIME = getService();
+        mLatinIMELegacy = mLatinIME.getLatinIMELegacy();
         setDebugMode(true);
         mPreviousBigramPredictionSettings = setBooleanPreference(Settings.PREF_BIGRAM_PREDICTIONS,
                 true, true /* defaultValue */);
         mPreviousAutoCorrectSetting = setBooleanPreference(Settings.PREF_AUTO_CORRECTION,
                 DEFAULT_AUTO_CORRECTION, DEFAULT_AUTO_CORRECTION);
+        // These tests exercise the AOSP dictionary/input-logic pipeline and assert exact
+        // suggestion scores. The transformer LM is an optional native model that reweights
+        // and reorders those suggestions asynchronously. It is opt-in per run because it also
+        // crashed the test process after several hundred cases; see the helper above.
+        mPreviousTransformerLmSetting = setBooleanPreference(
+                Settings.PREF_KEY_USE_TRANSFORMER_LM, useTransformerLanguageModelForTesting(), true);
+        // These tests were written for the legacy phantom-space behaviour. The fork now
+        // defaults to automatic spaces (SPACES_MODE_ALL); pin the legacy mode so the
+        // expectations below stay meaningful instead of silently testing another mode.
+        mPreviousAltSpacesMode = setIntPreference(Settings.PREF_ALT_SPACES_MODE,
+                Settings.SPACES_MODE_LEGACY, Settings.DEFAULT_ALT_SPACES_MODE);
         getService().onCreate();
         EditorInfo ei = new EditorInfo();
         final InputConnection ic = mEditText.onCreateInputConnection(ei);
-        final LayoutInflater inflater =
-                (LayoutInflater)getContext().getSystemService(Context.LAYOUT_INFLATER_SERVICE);
-        final ViewGroup vg = new FrameLayout(getContext());
+        // Inflate the keyboard with the IME service as the context. The real IME
+        // view hierarchy gets its DynamicThemeProviderOwner from LatinIME, while
+        // ServiceTestCase's getContext() is a plain ContextImpl.
+        final LayoutInflater inflater = LayoutInflater.from(getService())
+                .cloneInContext(getService());
+        final ViewGroup vg = new FrameLayout(getService());
         mInputView = inflater.inflate(R.layout.input_view, vg);
         ei = enrichEditorInfo(ei);
         getService().onCreateInputMethodInterface().startInput(ic, ei);
@@ -247,6 +286,10 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
                 true /* defaultValue */);
         setBooleanPreference(Settings.PREF_AUTO_CORRECTION, mPreviousAutoCorrectSetting,
                 DEFAULT_AUTO_CORRECTION);
+        setBooleanPreference(Settings.PREF_KEY_USE_TRANSFORMER_LM,
+                mPreviousTransformerLmSetting, true);
+        setIntPreference(Settings.PREF_ALT_SPACES_MODE, mPreviousAltSpacesMode,
+                Settings.DEFAULT_ALT_SPACES_MODE);
         setDebugMode(false);
         mLatinIMELegacy.recycle();
         super.tearDown();
@@ -266,6 +309,11 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
         // Empty class
     }
     protected void runMessages() {
+        // Post a sentinel after the messages currently queued by the IME; when it
+        // runs, unwind Looper.loop() without quitting the shared test looper.
+        new Handler(Looper.myLooper()).post(() -> {
+            throw new InterruptRunMessagesException();
+        });
         try {
             Looper.loop();
         } catch (InterruptRunMessagesException e) {
@@ -308,6 +356,10 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
     protected void type(final String stringToType) {
         for (int i = 0; i < stringToType.length(); i = stringToType.offsetByCodePoints(i, 1)) {
             type(stringToType.codePointAt(i));
+            // Suggestion generation is asynchronous in this fork. Let the callback run before
+            // the next key (in particular before a separator, which triggers auto-correction).
+            sleep(10);
+            runMessages();
         }
     }
 
@@ -395,6 +447,13 @@ public class InputTestsBase extends ServiceTestCase<LatinIME> {
         mLatinIMELegacy.onCurrentInputMethodSubtypeChanged(subtype);
         runMessages();
         mKeyboard = mLatinIMELegacy.mKeyboardSwitcher.getKeyboard();
+        if (mKeyboard == null) {
+            // The subtype change may be processed after onStartInputView() on the test
+            // looper; force one synchronous reload rather than failing in typeInternal().
+            mLatinIMELegacy.loadKeyboard();
+            runMessages();
+            mKeyboard = mLatinIMELegacy.mKeyboardSwitcher.getKeyboard();
+        }
         mLatinIMELegacy.clearPersonalizedDictionariesForTest();
     }
 

@@ -178,7 +178,11 @@ public final class InputPointers {
         mPointerIds.shift(elementCount);
         mTimes.shift(elementCount);
 
-        for(int i=0; i<elementCount; i++) mGestureSegments.remove(0);
+        // Gesture segments are optional: older callers (and tests) can append raw points
+        // without ever calling onPointerDown(). Only discard the segments that exist.
+        for (int i = 0; i < elementCount && !mGestureSegments.isEmpty(); i++) {
+            mGestureSegments.remove(0);
+        }
     }
 
     public void reset() {

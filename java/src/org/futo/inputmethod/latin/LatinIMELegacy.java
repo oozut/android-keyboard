@@ -972,35 +972,26 @@ public class LatinIMELegacy implements KeyboardActionListener,
     @UsedForTesting
     SuggestedWords getSuggestedWordsForTest() {
         // You may not use this method for anything else than debug
-        // TODO: return DebugFlags.DEBUG_ENABLED ? mInputLogic.mSuggestedWords : null;
-        return null;
+        return getActiveIME().getSuggestedWordsForTest();
     }
 
     // DO NOT USE THIS for any other purpose than testing. This is information private to LatinIME.
     @UsedForTesting
     void waitForLoadingDictionaries(final long timeout, final TimeUnit unit)
             throws InterruptedException {
-        // TODO: mDictionaryFacilitator.waitForLoadingDictionariesForTesting(timeout, unit);
+        getActiveIME().waitForLoadingDictionaries(timeout, unit);
     }
 
     // DO NOT USE THIS for any other purpose than testing. This can break the keyboard badly.
     @UsedForTesting
     void replaceDictionariesForTest(final Locale locale) {
-        final ArrayList<Locale> locales = new ArrayList<>();
-        locales.add(locale);
-
-        final SettingsValues settingsValues = mSettings.getCurrent();
-        // TODO: mDictionaryFacilitator.resetDictionaries(mInputMethodService, locales,
-        //    settingsValues.mUseContactsDict, settingsValues.mUsePersonalizedDicts,
-        //    false /* forceReloadMainDictionary */,
-        //    settingsValues.mAccount, "", /* dictionaryNamePrefix */
-        //    this /* DictionaryInitializationListener */);
+        getActiveIME().replaceDictionariesForTest(locale);
     }
 
     // DO NOT USE THIS for any other purpose than testing.
     @UsedForTesting
     void clearPersonalizedDictionariesForTest() {
-        // TODO: mDictionaryFacilitator.clearUserHistoryDictionary(mInputMethodService);
+        getActiveIME().clearPersonalizedDictionariesForTest();
     }
 
     public void dumpDictionaryForDebug(final String dictName) {

@@ -27,6 +27,7 @@ import android.text.style.URLSpan;
 import org.futo.inputmethod.annotations.UsedForTesting;
 
 import java.util.ArrayList;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -67,8 +68,15 @@ public final class SpannableStringUtils {
             if (en > end)
                 en = end;
 
-            dest.setSpan(spans[i], st - start + destoff, en - start + destoff,
-                         fl);
+            // A span that crosses the cursor is present on both sides of the query. Copying
+            // the same object twice would make the second setSpan() replace the first range,
+            // silently losing the part that extends past the word. Use a distinct object for
+            // each part; getSuggestionSpansAtWord() merges equal spans again.
+            final SuggestionSpan original = (SuggestionSpan) spans[i];
+            final SuggestionSpan copy = new SuggestionSpan(
+                    new Locale(original.getLocale()), original.getSuggestions(),
+                    original.getFlags());
+            dest.setSpan(copy, st - start + destoff, en - start + destoff, fl);
         }
     }
 

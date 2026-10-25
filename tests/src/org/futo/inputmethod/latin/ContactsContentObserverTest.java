@@ -18,11 +18,10 @@ package org.futo.inputmethod.latin;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Matchers.eq;
-import static org.mockito.Mockito.validateMockitoUsage;
-import static org.mockito.Mockito.when;
-
+import android.Manifest;
 import android.content.Context;
+import android.content.ContextWrapper;
+import android.content.pm.PackageManager;
 import android.provider.ContactsContract.Contacts;
 
 import androidx.test.filters.SmallTest;
@@ -32,8 +31,6 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
-import org.mockito.Mock;
-import org.mockito.MockitoAnnotations;
 
 import java.util.ArrayList;
 
@@ -56,43 +53,91 @@ public class ContactsContentObserverTest {
         UPDATED_NAMES_LIST.add("Barak Obama");
     }
 
-    @Mock private ContactsManager mMockManager;
-    @Mock private Context mContext;
+    /** Hand-written fake; avoids Dexmaker, which cannot load writable dex files on API 34+. */
+    private static class FakeContactsManager extends ContactsManager {
+        int mContactCount = STALE_CONTACT_COUNT;
+        int mContactCountAtLastRebuild = STALE_CONTACT_COUNT;
+        int mHashCodeAtLastRebuild = STALE_NAMES_LIST.hashCode();
+        ArrayList<String> mNames = STALE_NAMES_LIST;
 
+        FakeContactsManager(Context context) {
+            super(context);
+        }
+
+        @Override
+        public int getContactCount() {
+            return mContactCount;
+        }
+
+        @Override
+        public int getContactCountAtLastRebuild() {
+            return mContactCountAtLastRebuild;
+        }
+
+        @Override
+        public int getHashCodeAtLastRebuild() {
+            return mHashCodeAtLastRebuild;
+        }
+
+        @Override
+        public ArrayList<String> getValidNames(android.net.Uri uri) {
+            return mNames;
+        }
+    }
+
+    private FakeContactsManager mManager;
     private ContactsContentObserver mObserver;
 
     @Before
-    public void setUp() throws Exception {
-        MockitoAnnotations.initMocks(this);
-        mObserver = new ContactsContentObserver(mMockManager, mContext);
-    }
+    public void setUp() {
+        final android.app.Instrumentation instrumentation =
+                androidx.test.platform.app.InstrumentationRegistry.getInstrumentation();
+        final Context testContext = instrumentation.getContext();
+        try {
+            instrumentation.getUiAutomation().grantRuntimePermission(
+                    testContext.getPackageName(), Manifest.permission.READ_CONTACTS);
+        } catch (SecurityException | IllegalArgumentException e) {
+            // Already granted, or the target SDK handles the permission itself.
+        }
+        final Context context = new ContextWrapper(testContext) {
+            @Override
+            public int checkSelfPermission(String permission) {
+                return PackageManager.PERMISSION_GRANTED;
+            }
 
-    @After
-    public void tearDown() {
-        validateMockitoUsage();
+            @Override
+            public int checkPermission(String permission, int pid, int uid) {
+                return PackageManager.PERMISSION_GRANTED;
+            }
+
+            @Override
+            public int checkCallingOrSelfPermission(String permission) {
+                return PackageManager.PERMISSION_GRANTED;
+            }
+
+            @Override
+            public Context getApplicationContext() {
+                return this;
+            }
+        };
+        mManager = new FakeContactsManager(context);
+        mObserver = new ContactsContentObserver(mManager, context);
     }
 
     @Test
     public void testHaveContentsChanged_NoChange() {
-        when(mMockManager.getContactCount()).thenReturn(STALE_CONTACT_COUNT);
-        when(mMockManager.getContactCountAtLastRebuild()).thenReturn(STALE_CONTACT_COUNT);
-        when(mMockManager.getValidNames(eq(Contacts.CONTENT_URI))).thenReturn(STALE_NAMES_LIST);
-        when(mMockManager.getHashCodeAtLastRebuild()).thenReturn(STALE_NAMES_LIST.hashCode());
         assertFalse(mObserver.haveContentsChanged());
     }
+
     @Test
     public void testHaveContentsChanged_UpdatedCount() {
-        when(mMockManager.getContactCount()).thenReturn(UPDATED_CONTACT_COUNT);
-        when(mMockManager.getContactCountAtLastRebuild()).thenReturn(STALE_CONTACT_COUNT);
+        mManager.mContactCount = UPDATED_CONTACT_COUNT;
         assertTrue(mObserver.haveContentsChanged());
     }
 
     @Test
     public void testHaveContentsChanged_HashUpdate() {
-        when(mMockManager.getContactCount()).thenReturn(STALE_CONTACT_COUNT);
-        when(mMockManager.getContactCountAtLastRebuild()).thenReturn(STALE_CONTACT_COUNT);
-        when(mMockManager.getValidNames(eq(Contacts.CONTENT_URI))).thenReturn(UPDATED_NAMES_LIST);
-        when(mMockManager.getHashCodeAtLastRebuild()).thenReturn(STALE_NAMES_LIST.hashCode());
+        mManager.mNames = UPDATED_NAMES_LIST;
         assertTrue(mObserver.haveContentsChanged());
     }
 }

@@ -1,6 +1,7 @@
 package org.futo.inputmethod.latin.uix
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.res.TypedArray
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
@@ -81,13 +82,15 @@ interface DynamicThemeProvider {
 
         @JvmStatic
         fun obtainFromContext(context: Context): DynamicThemeProvider {
-            if (context is DynamicThemeProviderOwner) {
-                return context.getDrawableProvider()
-            } else if (context is ContextThemeWrapper) {
-                val baseContext = context.baseContext
-                if (baseContext is DynamicThemeProviderOwner) {
-                    return baseContext.getDrawableProvider()
+            // LayoutInflater usually wraps the IME service in one or more
+            // ContextThemeWrappers, so walk the whole base-context chain instead
+            // of checking only the immediate parent.
+            var current: Context? = context
+            while (current != null) {
+                if (current is DynamicThemeProviderOwner) {
+                    return current.getDrawableProvider()
                 }
+                current = (current as? ContextWrapper)?.baseContext
             }
 
             throw IllegalArgumentException("Could not find DynamicThemeProviderOwner")

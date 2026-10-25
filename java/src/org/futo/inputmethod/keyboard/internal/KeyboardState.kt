@@ -108,7 +108,7 @@ data class KeyboardLayoutElement(
                 KeyboardLayoutPage.Base -> KeyboardId.ELEMENT_ALPHABET
                 KeyboardLayoutPage.Shifted -> KeyboardId.ELEMENT_ALPHABET_AUTOMATIC_SHIFTED
                 KeyboardLayoutPage.ManuallyShifted -> KeyboardId.ELEMENT_ALPHABET_MANUAL_SHIFTED
-                KeyboardLayoutPage.ShiftLocked -> KeyboardId.ELEMENT_ALPHABET_SHIFT_LOCK_SHIFTED
+                KeyboardLayoutPage.ShiftLocked -> KeyboardId.ELEMENT_ALPHABET_SHIFT_LOCKED
                 else -> KeyboardId.ELEMENT_ALPHABET
             }
         }
