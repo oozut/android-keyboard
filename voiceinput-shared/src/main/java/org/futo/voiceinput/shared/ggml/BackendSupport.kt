@@ -220,15 +220,23 @@ object BackendSupport {
     }
 
     /**
-     * The backends the user may pick, given which compatible models are assigned:
-     * [CPU] plus — when the device supports it — [VULKAN] for a ggml model, and
-     * [QNN] for a Qualcomm model. Empty when nothing can run (e.g. a QNN model on
-     * a non-Snapdragon device); the UI uses this to decide which tabs to show.
+     * The backends the user may pick for a language.
+     *
+     * These are *device* capabilities, deliberately independent of which model
+     * is currently assigned. Filtering by the assigned model made the picker
+     * vanish for every language that only had the shared QNN model: a language
+     * without its own ggml model was offered `[QNN]` alone, so there was no
+     * control to choose CPU/Vulkan even though the user could assign a model
+     * afterwards. Listing the backends the device can run keeps the choice
+     * visible and per-language; [unavailableReason] then explains that CPU or
+     * Vulkan has no model yet. [resolveBackend] still routes to a backend with
+     * a usable model, so an unavailable choice can never break transcription.
      *
      * A development build always gets all three, supported or not, so an
      * unsupported configuration stays reproducible; the picker then shows
      * [unavailableReason] for whichever one is selected.
      */
+    @Suppress("UNUSED_PARAMETER")
     fun availableBackends(
         context: Context,
         hasGgmlModel: Boolean,
@@ -239,11 +247,12 @@ object BackendSupport {
         }
 
         return buildList {
-            if (hasGgmlModel) {
-                add(Backend.CPU)
-                if (isVulkanAvailable(context)) add(Backend.VULKAN)
-            }
-            if (hasQnnModel && isQnnAvailable(context)) add(Backend.QNN)
+            // CPU is the always-available fallback. It still needs a ggml model,
+            // which is why selecting it without one shows NO_MODEL below instead
+            // of the option being hidden.
+            add(Backend.CPU)
+            if (isVulkanAvailable(context)) add(Backend.VULKAN)
+            if (isQnnAvailable(context)) add(Backend.QNN)
         }
     }
 
@@ -258,12 +267,14 @@ object BackendSupport {
      * models are assigned.
      *
      * The backend has to match the model: a Qualcomm model only runs on [QNN],
-     * a ggml model only on [CPU] or [VULKAN]. So a QNN model selected on a
-     * device that cannot run it is returned as-is, letting the loader raise a
-     * clear "hardware acceleration unavailable" error instead of the app
-     * silently running something else. A request for a backend that the device
-     * cannot run, or that has no matching model, degrades to what can actually
-     * run rather than failing.
+     * a ggml model only on [CPU] or [VULKAN]. A QNN model selected on a device
+     * that cannot run it is returned as-is, letting the loader raise a clear
+     * "hardware acceleration unavailable" error instead of the app silently
+     * running something else. An explicit CPU/Vulkan request with no ggml model
+     * is also honoured, so the settings card keeps showing the choice the user
+     * made and can explain that this language has no model yet; silently
+     * switching such a language back to QNN made the per-language picker look
+     * broken. The default backend is handled separately by [defaultBackend].
      *
      * A development build is the exception: when the requested backend has a
      * model to load, the request is honoured verbatim even if the device cannot
@@ -286,21 +297,26 @@ object BackendSupport {
             if (hasModelForRequest) return requested
         }
 
-        if (hasQnnModel && (requested == Backend.QNN || !hasGgmlModel)) {
-            return Backend.QNN
-        }
-
-        if (hasGgmlModel) {
-            return if (requested == Backend.VULKAN && isVulkanAvailable(context)) {
-                Backend.VULKAN
-            } else {
-                Backend.CPU
+        if (requested == Backend.QNN) {
+            return when {
+                hasQnnModel -> Backend.QNN
+                // No Qualcomm model, but a ggml one exists: CPU is the only
+                // backend that can actually load it.
+                hasGgmlModel -> Backend.CPU
+                // Nothing to run; keep the request so the loader reports it.
+                else -> Backend.QNN
             }
         }
 
-        // No ggml model at all: honour an explicit QNN request so the loader can
-        // report the real problem, otherwise there is nothing to run.
-        return if (requested == Backend.QNN) Backend.QNN else Backend.CPU
+        // An explicit CPU/Vulkan choice is kept even without a model, so the
+        // picker and the model name agree (both say "no model for this backend").
+        if (!hasGgmlModel) return requested
+
+        return if (requested == Backend.VULKAN && isVulkanAvailable(context)) {
+            Backend.VULKAN
+        } else {
+            Backend.CPU
+        }
     }
 
     /**

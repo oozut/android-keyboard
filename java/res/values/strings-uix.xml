@@ -342,7 +342,7 @@
 
     <!-- Hardware-acceleration backend picker for the per-language voice input model.
          Only backends the device can actually run are offered (see BackendSupport). -->
-    <string name="language_settings_voice_input_backend_title">Transcription backend</string>
+    <string name="language_settings_voice_input_backend_title">Transcription backend for this language</string>
     <string name="voice_input_backend_cpu">CPU</string>
     <string name="voice_input_backend_vulkan">Vulkan</string>
     <string name="voice_input_backend_qnn">QNN</string>

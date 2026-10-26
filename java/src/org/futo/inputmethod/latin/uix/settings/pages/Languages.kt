@@ -260,43 +260,47 @@ fun LanguageSurface(
                     selection = item.options.voiceInputModel
                         ?: stringResource(R.string.language_settings_resource_none)
                 ) { onConfigurableSelected(FileKind.VoiceInput) }
-                if (item.options.voiceInputModel != null) {
-                    val showBackendPicker = item.options.voiceInputBackends.size > 1
-                    val qnnUnavailable = item.options.voiceInputQnnUnavailable
+                // Always render the picker: the backend is a per-language choice,
+                // and it must remain reachable even for a language whose model
+                // is not assigned yet (the picker then explains which backends
+                // need one). Previously it was nested under "model != null",
+                // which hid the control for every language except one that had a
+                // ggml model of its own.
+                val showBackendPicker = item.options.voiceInputBackends.size > 1
+                val qnnUnavailable = item.options.voiceInputQnnUnavailable
 
-                    VoiceInputBackendPicker(
-                        backends = item.options.voiceInputBackends,
-                        selected = item.options.voiceInputBackend,
-                        hasGgmlModel = item.options.voiceInputHasGgmlModel,
-                        hasQnnModel = item.options.voiceInputHasQnnModel,
-                        onSelected = onVoiceInputBackendSelected,
-                        titleColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
-                    )
+                VoiceInputBackendPicker(
+                    backends = item.options.voiceInputBackends,
+                    selected = item.options.voiceInputBackend,
+                    hasGgmlModel = item.options.voiceInputHasGgmlModel,
+                    hasQnnModel = item.options.voiceInputHasQnnModel,
+                    onSelected = onVoiceInputBackendSelected,
+                    titleColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                )
 
-                    // Only relevant while QNN is the active backend. Showing this
-                    // for every language (even CPU/Vulkan ones) was noise.
-                    if (item.options.voiceInputBackend == Backend.QNN &&
-                        item.options.voiceInputHasQnnModel &&
-                        ResourceHelper.findSharedQnnVoiceInputModel(context) != null
-                    ) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Tip(stringResource(R.string.language_settings_resource_qnn_shared_banner))
-                    }
+                // Only relevant while QNN is the active backend. Showing this
+                // for every language (even CPU/Vulkan ones) was noise.
+                if (item.options.voiceInputBackend == Backend.QNN &&
+                    item.options.voiceInputHasQnnModel &&
+                    ResourceHelper.findSharedQnnVoiceInputModel(context) != null
+                ) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Tip(stringResource(R.string.language_settings_resource_qnn_shared_banner))
+                }
 
-                    // Only when QNN is missing from the picker entirely: when it is
-                    // offered, selecting it shows the same explanation underneath.
-                    if (qnnUnavailable != null && Backend.QNN !in item.options.voiceInputBackends) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Tip(
-                            "⚠\uFE0F " + stringResource(
-                                unavailableMessageRes(Backend.QNN, qnnUnavailable)
-                            )
+                // Only when QNN is missing from the picker entirely: when it is
+                // offered, selecting it shows the same explanation underneath.
+                if (qnnUnavailable != null && Backend.QNN !in item.options.voiceInputBackends) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Tip(
+                        "⚠\uFE0F " + stringResource(
+                            unavailableMessageRes(Backend.QNN, qnnUnavailable)
                         )
-                    }
+                    )
+                }
 
-                    if (showBackendPicker) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                    }
+                if (showBackendPicker) {
+                    Spacer(modifier = Modifier.height(10.dp))
                 }
                 LanguageConfigurable(
                     kind = FileKind.Dictionary,

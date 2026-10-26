@@ -861,42 +861,56 @@ object ResourceHelper {
     }
 
     /**
-     * Locale key the per-locale voice input backend preference lives under. It
-     * follows whichever resource key is already assigned for the locale so it
-     * matches the legacy key scheme, and falls back to the plain locale tag so a
-     * choice can still be stored for a locale that only has a built-in model
-     * (e.g. English) or only a Qualcomm model.
+     * Canonical locale key the per-language voice input backend preference lives
+     * under. It is always derived from the locale itself, never from which model
+     * happens to be assigned: sharing the model key meant two locales that match
+     * the same legacy key (e.g. `en` and `en_US`) could share one backend, and a
+     * choice made before importing a model was lost as soon as the key changed.
      */
-    private fun voiceInputPreferenceKey(context: Context, locale: Locale): String =
-        findKeyForLocaleAndKind(context, locale, FileKind.VoiceInput)
-            ?: findKeyForLocaleAndKind(context, locale, FileKind.VoiceInputQnnZip)
-            ?: findKeyForLocaleAndKind(context, locale, FileKind.VoiceInputQnn)
-            ?: locale.toString()
+    private fun voiceInputPreferenceKey(locale: Locale): String = locale.toString()
+
+    /**
+     * Keys a backend choice may have been stored under by an older build. Those
+     * builds keyed the preference by the assigned model's resource key, so they
+     * are read as a fallback and migrated to [voiceInputPreferenceKey] on the
+     * next write.
+     */
+    private fun legacyVoiceInputPreferenceKeys(context: Context, locale: Locale): List<String> =
+        listOfNotNull(
+            findKeyForLocaleAndKind(context, locale, FileKind.VoiceInput),
+            findKeyForLocaleAndKind(context, locale, FileKind.VoiceInputQnnZip),
+            findKeyForLocaleAndKind(context, locale, FileKind.VoiceInputQnn),
+        ).filter { it != voiceInputPreferenceKey(locale) }
 
     /**
      * The backend the user explicitly picked for [locale], or `null` when they
      * never chose one (callers should then use [BackendSupport.defaultBackend]).
      *
-     * The choice is stored against the ggml voice input model key because that is
-     * the only assignment where there is a choice to make: a QNN model can only
-     * ever run on [Backend.QNN]. Installs that predate the backend picker stored
-     * a boolean "use hardware acceleration" flag instead; a legacy `true` maps to
-     * the fastest backend the device supports.
+     * The choice is stored per language. Installs that predate the backend picker
+     * stored a boolean "use hardware acceleration" flag instead; a legacy `true`
+     * maps to the fastest backend the device supports.
      */
     fun getVoiceInputBackend(context: Context, locale: Locale): Backend? {
-        val key = voiceInputPreferenceKey(context, locale)
+        val key = voiceInputPreferenceKey(locale)
+        val keys = listOf(key) + legacyVoiceInputPreferenceKeys(context, locale)
 
-        val stored = context.getSetting(FileKind.VoiceInput.backendPreferenceKeyFor(key), "")
-        if (stored.isNotEmpty()) {
-            return Backend.entries.firstOrNull { it.name == stored }
+        for (candidate in keys) {
+            val stored = context.getSetting(
+                FileKind.VoiceInput.backendPreferenceKeyFor(candidate), ""
+            )
+            if (stored.isNotEmpty()) {
+                return Backend.entries.firstOrNull { it.name == stored }
+            }
         }
 
-        val legacyUseGpu = context.getSetting(FileKind.VoiceInput.gpuPreferenceKeyFor(key), false)
+        val legacyUseGpu = keys.any { candidate ->
+            context.getSetting(FileKind.VoiceInput.gpuPreferenceKeyFor(candidate), false)
+        }
         return if (legacyUseGpu) BackendSupport.preferredBackend(context) else null
     }
 
     fun setVoiceInputBackend(context: Context, locale: Locale, backend: Backend) {
-        val key = voiceInputPreferenceKey(context, locale)
+        val key = voiceInputPreferenceKey(locale)
         runBlocking {
             context.setSetting(FileKind.VoiceInput.backendPreferenceKeyFor(key), backend.name)
         }
