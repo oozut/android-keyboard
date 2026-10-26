@@ -137,7 +137,20 @@ fun ModelPicker(
 fun openModelImporter(context: Context) {
     val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
         addCategory(Intent.CATEGORY_OPENABLE)
-        type = "application/octet-stream"
+        // Accept both raw model binaries and the QNN ZIP container. `*/*` plus
+        // EXTRA_MIME_TYPES keeps pickers (notably Samsung's) from hiding .zip
+        // files, which are reported as application/zip rather than
+        // application/octet-stream.
+        type = "*/*"
+        putExtra(
+            Intent.EXTRA_MIME_TYPES,
+            arrayOf(
+                "application/octet-stream",
+                "application/zip",
+                "application/x-zip-compressed",
+                "application/x-zip"
+            )
+        )
     }
 
     findActivity(context)!!.startActivityForResult(intent, IMPORT_RESOURCE_FILE_REQUEST)

@@ -25,8 +25,17 @@ RUN sdkmanager --install "build-tools;${ANDROID_BUILD_TOOLS_VERSION}"
 RUN sdkmanager --install "platforms;android-${ANDROID_VERSION}"
 RUN sdkmanager --install "platform-tools"
 RUN sdkmanager --install "ndk;28.2.13676358"
+RUN sdkmanager --install "cmake;3.22.1"
 
-RUN apt update && apt install -y build-essential file apt-utils python3-requests
+# ninja + glslc are needed to build the Vulkan/GPU voice-input engine
+# (ggml-vulkan generates its shaders with a host-side ExternalProject).
+RUN apt update && apt install -y build-essential file apt-utils python3-requests \
+        ninja-build
+
+# Ubuntu 24.04 does not package the `glslc` binary, so use the copy that
+# ships with the NDK.  A newer glslc can be mounted/installed by the caller
+# to enable the optional integer-dot/coopmat shader variants.
+ENV PATH="$PATH:$ANDROID_HOME/ndk/28.2.13676358/shader-tools/linux-x86_64"
 
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-2.27.55.zip" -o "/tmp/awscliv2.zip" \
         && (echo "06c43658b5fd71a729455de9a1c09b011d565036513f5c7096af699f4eec755a  /tmp/awscliv2.zip" | sha256sum -c -) \

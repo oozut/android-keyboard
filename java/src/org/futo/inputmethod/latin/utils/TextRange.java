@@ -51,7 +51,9 @@ public final class TextRange {
      * @return the list of spans.
      */
     public SuggestionSpan[] getSuggestionSpansAtWord() {
-        if (!(mTextAtCursor instanceof Spanned && mWord instanceof Spanned)) {
+        // mWord is a plain CharSequence even when the surrounding text is spanned
+        // (SpannedString.subSequence() strips spans), so only the full text can carry them.
+        if (!(mTextAtCursor instanceof Spanned)) {
             return new SuggestionSpan[0];
         }
         final Spanned text = (Spanned)mTextAtCursor;
@@ -86,7 +88,7 @@ public final class TextRange {
             int spanStart = text.getSpanStart(span);
             int spanEnd = text.getSpanEnd(span);
             for (int i = readIndex + 1; i < spans.length; ++i) {
-                if (span.equals(spans[i])) {
+                if (sameSuggestionSpan(span, spans[i])) {
                     // We found the same span somewhere else. Read the new extent of this
                     // span, and adjust our values accordingly.
                     spanStart = Math.min(spanStart, text.getSpanStart(spans[i]));
@@ -103,6 +105,14 @@ public final class TextRange {
             }
         }
         return writeIndex == readIndex ? spans : Arrays.copyOfRange(spans, 0, writeIndex);
+    }
+
+    private static boolean sameSuggestionSpan(final SuggestionSpan first,
+            final SuggestionSpan second) {
+        return first != null && second != null
+                && first.getFlags() == second.getFlags()
+                && first.getLocale().equals(second.getLocale())
+                && Arrays.equals(first.getSuggestions(), second.getSuggestions());
     }
 
     public TextRange(final CharSequence textAtCursor, final int wordAtCursorStartIndex,

@@ -1,9 +1,11 @@
 package org.futo.inputmethod.latin.uix.settings.pages
 
 import android.view.inputmethod.InputMethodSubtype
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -76,6 +78,10 @@ import org.futo.inputmethod.latin.utils.Dictionaries
 import org.futo.inputmethod.latin.utils.SubtypeLocaleUtils
 import org.futo.inputmethod.latin.xlm.ModelPaths
 import org.futo.inputmethod.updates.openURI
+import org.futo.voiceinput.shared.ggml.Backend
+import org.futo.voiceinput.shared.ggml.BackendSupport
+import org.futo.voiceinput.shared.ggml.BackendUnavailableReason
+import org.futo.voiceinput.shared.types.ModelQnnZip
 import java.util.Locale
 
 private val InputMethodSubtype.layoutSetName
@@ -216,8 +222,10 @@ fun LanguageSurface(
     onLayoutRemoved: (InputMethodSubtype) -> Unit,
     onLayoutAdditionRequested: () -> Unit,
     onLanguageRemoved: () -> Unit,
-    onToggleMultilingualBucket: (Boolean) -> Unit
+    onToggleMultilingualBucket: (Boolean) -> Unit,
+    onVoiceInputBackendSelected: (Backend) -> Unit = {}
 ) {
+    val context = LocalContext.current
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(
             modifier
@@ -252,6 +260,48 @@ fun LanguageSurface(
                     selection = item.options.voiceInputModel
                         ?: stringResource(R.string.language_settings_resource_none)
                 ) { onConfigurableSelected(FileKind.VoiceInput) }
+                // Always render the picker: the backend is a per-language choice,
+                // and it must remain reachable even for a language whose model
+                // is not assigned yet (the picker then explains which backends
+                // need one). Previously it was nested under "model != null",
+                // which hid the control for every language except one that had a
+                // ggml model of its own.
+                val showBackendPicker = item.options.voiceInputBackends.size > 1
+                val qnnUnavailable = item.options.voiceInputQnnUnavailable
+
+                VoiceInputBackendPicker(
+                    backends = item.options.voiceInputBackends,
+                    selected = item.options.voiceInputBackend,
+                    hasGgmlModel = item.options.voiceInputHasGgmlModel,
+                    hasQnnModel = item.options.voiceInputHasQnnModel,
+                    onSelected = onVoiceInputBackendSelected,
+                    titleColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                )
+
+                // Only relevant while QNN is the active backend. Showing this
+                // for every language (even CPU/Vulkan ones) was noise.
+                if (item.options.voiceInputBackend == Backend.QNN &&
+                    item.options.voiceInputHasQnnModel &&
+                    ResourceHelper.findSharedQnnVoiceInputModel(context) != null
+                ) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Tip(stringResource(R.string.language_settings_resource_qnn_shared_banner))
+                }
+
+                // Only when QNN is missing from the picker entirely: when it is
+                // offered, selecting it shows the same explanation underneath.
+                if (qnnUnavailable != null && Backend.QNN !in item.options.voiceInputBackends) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Tip(
+                        "⚠\uFE0F " + stringResource(
+                            unavailableMessageRes(Backend.QNN, qnnUnavailable)
+                        )
+                    )
+                }
+
+                if (showBackendPicker) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
                 LanguageConfigurable(
                     kind = FileKind.Dictionary,
                     selection = item.options.dictionary
@@ -357,8 +407,167 @@ fun LanguageSurfacePreview() {
 data class LanguageOptions(
     val voiceInputModel: String?,
     val dictionary: String?,
-    val transformerModel: String?
+    val transformerModel: String?,
+    /**
+     * Backends the user may pick for this language's voice input model. Only
+     * ones the device can actually run are listed (see
+     * [BackendSupport.availableBackends]), so the picker never offers QNN on a
+     * device without a Snapdragon SoC, and never offers a backend whose native
+     * library was not packaged for this ABI.
+     */
+    val voiceInputBackends: List<Backend> = emptyList(),
+    val voiceInputBackend: Backend = Backend.CPU,
+    /** Whether a ggml model — what [Backend.CPU] and [Backend.VULKAN] run — is assigned. */
+    val voiceInputHasGgmlModel: Boolean = false,
+    /** Whether a Qualcomm model — what [Backend.QNN] runs — is assigned. */
+    val voiceInputHasQnnModel: Boolean = false,
+    /**
+     * A Qualcomm model is assigned here, but this device cannot run QNN; the
+     * value says what is missing, so the warning can explain it instead of the
+     * option just disappearing. `null` when QNN is fine.
+     */
+    val voiceInputQnnUnavailable: BackendUnavailableReason? = null
 )
+
+/**
+ * The one-line explanation shown under the picker for a backend that will not
+ * run. In a shipping build the unsupported backends are not offered in the first
+ * place, so most of these are only reachable from a development build; the QNN
+ * ones also appear when a Qualcomm model is assigned on a device that cannot run
+ * it, where the tab is hidden and the explanation is the only thing the user sees.
+ */
+@StringRes
+private fun unavailableMessageRes(backend: Backend, reason: BackendUnavailableReason): Int =
+    when (reason) {
+        BackendUnavailableReason.NOT_QUALCOMM ->
+            R.string.language_settings_voice_input_backend_qnn_unavailable_not_qualcomm
+        BackendUnavailableReason.UNSUPPORTED_CHIPSET ->
+            R.string.language_settings_voice_input_backend_qnn_unavailable_chipset
+        BackendUnavailableReason.VULKAN_UNAVAILABLE ->
+            R.string.voice_input_backend_vulkan_unavailable
+        BackendUnavailableReason.VULKAN_GPU_UNSUPPORTED ->
+            R.string.voice_input_backend_vulkan_experimental
+        BackendUnavailableReason.NO_MODEL -> when (backend) {
+            Backend.QNN -> R.string.voice_input_backend_qnn_no_model
+            else -> R.string.voice_input_backend_no_ggml_model
+        }
+        // The engine is simply not on this device.
+        BackendUnavailableReason.UNSUPPORTED_ABI,
+        BackendUnavailableReason.LIBRARY_MISSING -> when (backend) {
+            Backend.QNN -> R.string.language_settings_voice_input_backend_qnn_unavailable
+            else -> R.string.voice_input_backend_vulkan_unavailable
+        }
+    }
+
+@StringRes
+private fun Backend.displayNameRes(): Int = when (this) {
+    Backend.CPU -> R.string.voice_input_backend_cpu
+    Backend.VULKAN -> R.string.voice_input_backend_vulkan
+    Backend.QNN -> R.string.voice_input_backend_qnn
+}
+
+@StringRes
+private fun Backend.descriptionRes(): Int = when (this) {
+    Backend.CPU -> R.string.voice_input_backend_cpu_description
+    Backend.VULKAN -> R.string.voice_input_backend_vulkan_description
+    Backend.QNN -> R.string.voice_input_backend_qnn_description
+}
+
+/**
+ * Segmented backend picker (CPU / Vulkan / QNN). Renders nothing when there is
+ * only one possible backend, so devices with no accelerator simply see no
+ * control at all rather than a dead switch.
+ *
+ * Whichever backend is selected is checked with [BackendSupport.unavailableReason]
+ * and, when it will not run, the reason is shown underneath in the error colour.
+ * In a shipping build [BackendSupport.availableBackends] does not offer a backend
+ * the device cannot run, so nothing is selected that would produce a warning —
+ * with one exception: a Qualcomm model assigned on a device that cannot run QNN,
+ * where the tab is hidden but the reason is still worth showing. Everything else
+ * only ever warns from a development build, which offers all three on purpose.
+ */
+@Composable
+fun VoiceInputBackendPicker(
+    backends: List<Backend>,
+    selected: Backend,
+    hasGgmlModel: Boolean,
+    hasQnnModel: Boolean,
+    onSelected: (Backend) -> Unit,
+    titleColor: Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+    modifier: Modifier = Modifier
+) {
+    if (backends.size < 2) return
+
+    // Deliberately not remembered: PackageManager feature lookups are cached by
+    // the framework and the rest are cheap field reads, and recomputing keeps
+    // the warning correct when a model is imported or removed.
+    val context = LocalContext.current
+    val unavailableReason = BackendSupport.unavailableReason(
+        context, selected, hasGgmlModel, hasQnnModel
+    )
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        Text(
+            stringResource(R.string.language_settings_voice_input_backend_title),
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp),
+            style = Typography.SmallMl,
+            color = titleColor
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, end = 16.dp, top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            backends.forEach { backend ->
+                val isSelected = backend == selected
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(34.dp)
+                        .background(
+                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outlineVariant,
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .clickable { onSelected(backend) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = stringResource(backend.displayNameRes()),
+                        style = Typography.SmallMl,
+                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+            }
+        }
+
+        Text(
+            stringResource(selected.descriptionRes()),
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 6.dp),
+            style = Typography.Small,
+            color = titleColor.copy(alpha = 0.75f)
+        )
+
+        if (unavailableReason != null) {
+            Text(
+                stringResource(unavailableMessageRes(selected, unavailableReason)),
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp),
+                style = Typography.Small,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+    }
+}
 
 @Composable
 fun ConfirmResourceActionDialog(
@@ -370,12 +579,23 @@ fun ConfirmResourceActionDialog(
 
     resourceKind: FileKind,
     isCurrentlySet: Boolean,
-    locale: Locale
+    locale: Locale,
+    voiceInputBackends: List<Backend> = emptyList(),
+    voiceInputBackend: Backend = Backend.CPU,
+    voiceInputHasGgmlModel: Boolean = false,
+    voiceInputHasQnnModel: Boolean = false,
+    voiceInputQnnUnavailable: BackendUnavailableReason? = null,
+    onVoiceInputBackendSelected: (Backend) -> Unit = {}
 ) {
+    val context = LocalContext.current
     val hasBuiltInFallback = if (resourceKind == FileKind.VoiceInput) {
         ResourceHelper.BuiltInVoiceInputFallbacks[locale.language] != null
+    } else if (resourceKind == FileKind.VoiceInputQnn) {
+        false
+    } else if (resourceKind == FileKind.VoiceInputQnnZip) {
+        false
     } else if (resourceKind == FileKind.Dictionary) {
-        Dictionaries.getDictionaryIfExists(LocalContext.current, locale, Dictionaries.DictionaryKind.Any) != null
+        Dictionaries.getDictionaryIfExists(context, locale, Dictionaries.DictionaryKind.Any) != null
     } else {
         true
     }
@@ -388,34 +608,78 @@ fun ConfirmResourceActionDialog(
             Text(text = "${locale.displayLanguage} - ${resourceKind.kindTitle(LocalResources.current)}")
         },
         text = {
-            if (isCurrentlySet) {
-                Text(
-                    text = when (resourceKind) {
-                        FileKind.VoiceInput -> stringResource(R.string.language_settings_resource_voice_input_selected)
-                        FileKind.Transformer -> stringResource(R.string.language_settings_resource_transformer_selected)
-                        FileKind.Dictionary -> stringResource(R.string.language_settings_resource_dictionary_selected)
-                        FileKind.Invalid -> ""
-                    } + if (!hasBuiltInFallback) {
-                        "\n\n" +
-                                when (resourceKind) {
-                                    FileKind.VoiceInput -> stringResource(R.string.language_settings_resource_voice_input_selected_no_default_warning)
-                                    FileKind.Transformer -> stringResource(R.string.language_settings_resource_transformer_selected_no_default_warning)
-                                    FileKind.Dictionary -> stringResource(R.string.language_settings_resource_dictionary_selected_no_default_warning)
-                                    FileKind.Invalid -> ""
-                                }
-                    } else {
-                        ""
+            Column {
+                if (resourceKind == FileKind.VoiceInputQnnZip) {
+                    Tip(stringResource(R.string.language_settings_resource_voice_input_qnn_shared_notice))
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                if (isCurrentlySet) {
+                    Text(
+                        text = when (resourceKind) {
+                            FileKind.VoiceInput -> stringResource(R.string.language_settings_resource_voice_input_selected)
+                            FileKind.VoiceInputQnn -> stringResource(R.string.language_settings_resource_voice_input_qnn_selected)
+                            FileKind.VoiceInputQnnZip -> stringResource(R.string.language_settings_resource_voice_input_qnn_selected)
+                            FileKind.Transformer -> stringResource(R.string.language_settings_resource_transformer_selected)
+                            FileKind.Dictionary -> stringResource(R.string.language_settings_resource_dictionary_selected)
+                            FileKind.Invalid -> ""
+                        } + if (!hasBuiltInFallback) {
+                            "\n\n" +
+                                    when (resourceKind) {
+                                        FileKind.VoiceInput -> stringResource(R.string.language_settings_resource_voice_input_selected_no_default_warning)
+                                        FileKind.VoiceInputQnn -> stringResource(R.string.language_settings_resource_voice_input_selected_no_default_warning)
+                                        FileKind.VoiceInputQnnZip -> stringResource(R.string.language_settings_resource_voice_input_selected_no_default_warning)
+                                        FileKind.Transformer -> stringResource(R.string.language_settings_resource_transformer_selected_no_default_warning)
+                                        FileKind.Dictionary -> stringResource(R.string.language_settings_resource_dictionary_selected_no_default_warning)
+                                        FileKind.Invalid -> ""
+                                    }
+                        } else {
+                            ""
+                        }
+                    )
+                } else {
+                    Text(
+                        text = when (resourceKind) {
+                            FileKind.VoiceInput -> stringResource(R.string.language_settings_resource_voice_input_selected_unset)
+                            FileKind.VoiceInputQnn -> stringResource(R.string.language_settings_resource_voice_input_qnn_selected_unset)
+                            FileKind.VoiceInputQnnZip -> stringResource(R.string.language_settings_resource_voice_input_qnn_selected_unset)
+                            FileKind.Transformer -> stringResource(R.string.language_settings_resource_transformer_selected_unset)
+                            FileKind.Dictionary -> stringResource(R.string.language_settings_resource_dictionary_selected_unset)
+                            FileKind.Invalid -> ""
+                        }
+                    )
+                }
+
+                // Voice-input kinds only: this dialog is shared with the
+                // dictionary/transformer resources, where a transcription backend
+                // is meaningless.
+                val isVoiceInputKind = resourceKind == FileKind.VoiceInput ||
+                        resourceKind == FileKind.VoiceInputQnn ||
+                        resourceKind == FileKind.VoiceInputQnnZip
+                if (isVoiceInputKind &&
+                    (voiceInputBackends.size > 1 || voiceInputQnnUnavailable != null)
+                ) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    VoiceInputBackendPicker(
+                        backends = voiceInputBackends,
+                        selected = voiceInputBackend,
+                        hasGgmlModel = voiceInputHasGgmlModel,
+                        hasQnnModel = voiceInputHasQnnModel,
+                        onSelected = onVoiceInputBackendSelected
+                    )
+                    // Only when QNN is missing from the picker entirely: when it
+                    // is offered, selecting it shows the same explanation.
+                    if (voiceInputQnnUnavailable != null &&
+                        Backend.QNN !in voiceInputBackends
+                    ) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Tip(
+                            "⚠\uFE0F " + stringResource(
+                                unavailableMessageRes(Backend.QNN, voiceInputQnnUnavailable)
+                            )
+                        )
                     }
-                )
-            } else {
-                Text(
-                    text = when (resourceKind) {
-                        FileKind.VoiceInput -> stringResource(R.string.language_settings_resource_voice_input_selected_unset)
-                        FileKind.Transformer -> stringResource(R.string.language_settings_resource_transformer_selected_unset)
-                        FileKind.Dictionary -> stringResource(R.string.language_settings_resource_dictionary_selected_unset)
-                        FileKind.Invalid -> ""
-                    }
-                )
+                }
             }
         },
         onDismissRequest = {
@@ -569,6 +833,9 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
     val resources = LocalResources.current
     val deleteDialogInfo: MutableState<DeleteInfo?> = remember { mutableStateOf(null) }
     val languageDeleteInfo: MutableState<Locale?> = remember { mutableStateOf(null) }
+    // Bumped whenever an import/delete may have changed which model is assigned,
+    // so the per-language model names and backend options recompute.
+    val gpuRevision = remember { mutableStateOf(0) }
 
     val inputMethods = useDataStoreValue(SubtypesSetting)
     val inputMethodList = remember(inputMethods) {
@@ -581,29 +848,86 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
 
     if (deleteDialogInfo.value != null) {
         val info = deleteDialogInfo.value!!
+        val dialogVoiceInputSelection = remember(info, gpuRevision.value) {
+            ResourceHelper.resolveVoiceInputSelection(context, info.locale)
+        }
+        // The card always edits FileKind.VoiceInput, but when the selected backend
+        // is QNN the active asset is a Qualcomm model. Point the dialog at that
+        // kind so "Remove" deletes the QNN model instead of a ggml one, and so
+        // the shared-model notice is shown.
+        val dialogKind = if (info.kind == FileKind.VoiceInput &&
+            dialogVoiceInputSelection.backend == Backend.QNN &&
+            dialogVoiceInputSelection.qnnModel != null
+        ) {
+            if (dialogVoiceInputSelection.qnnModel is ModelQnnZip) {
+                FileKind.VoiceInputQnnZip
+            } else {
+                FileKind.VoiceInputQnn
+            }
+        } else {
+            info.kind
+        }
         ConfirmResourceActionDialog(
-            onDismissRequest = { deleteDialogInfo.value = null },
+            onDismissRequest = {
+                gpuRevision.value++
+                deleteDialogInfo.value = null
+            },
             onExplore = {
                 context.openURI(info.kind.getAddonUrlForLocale(info.locale), true)
                 deleteDialogInfo.value = null
             },
             onDelete = {
-                ResourceHelper.deleteResourceForLanguage(context, info.kind, info.locale)
+                ResourceHelper.deleteResourceForLanguage(context, dialogKind, info.locale)
+                gpuRevision.value++
                 deleteDialogInfo.value = null
             },
             onImport = {
                 openModelImporter(context)
+                gpuRevision.value++
                 deleteDialogInfo.value = null
             },
 
-            resourceKind = info.kind,
+            resourceKind = dialogKind,
             locale = info.locale,
             isCurrentlySet = runBlocking {
-                ResourceHelper.findFileForKind(
+                if (dialogKind == FileKind.VoiceInputQnnZip) {
+                    // New imports live under the shared key; also accept a
+                    // legacy per-locale ZIP so it can still be removed.
+                    ResourceHelper.findSharedQnnVoiceInputModel(context) != null ||
+                        ResourceHelper.findFileForKind(
+                            context,
+                            info.locale,
+                            FileKind.VoiceInputQnnZip
+                        )?.exists() == true
+                } else {
+                    ResourceHelper.findFileForKind(
+                        context,
+                        info.locale,
+                        dialogKind
+                    )?.exists() == true
+                }
+            },
+            voiceInputBackends = remember(dialogVoiceInputSelection) {
+                BackendSupport.availableBackends(
                     context,
-                    info.locale,
-                    info.kind
-                )?.exists() == true
+                    dialogVoiceInputSelection.ggmlModel != null,
+                    dialogVoiceInputSelection.qnnModel != null
+                )
+            },
+            voiceInputBackend = dialogVoiceInputSelection.backend,
+            voiceInputHasGgmlModel = dialogVoiceInputSelection.ggmlModel != null,
+            voiceInputHasQnnModel = dialogVoiceInputSelection.qnnModel != null,
+            voiceInputQnnUnavailable = if (dialogVoiceInputSelection.qnnModel != null) {
+                BackendSupport.unavailableReason(
+                    context,
+                    Backend.QNN,
+                    hasGgmlModel = dialogVoiceInputSelection.ggmlModel != null,
+                    hasQnnModel = true
+                )
+            } else null,
+            onVoiceInputBackendSelected = { backend ->
+                ResourceHelper.setVoiceInputBackend(context, info.locale, backend)
+                gpuRevision.value++
             }
         )
     } else if (languageDeleteInfo.value != null) {
@@ -654,10 +978,13 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
 
             val name = Subtypes.getName(subtypes.first())
 
-            val voiceInputModelName = ResourceHelper.tryFindingVoiceInputModelForLocale(
-                context,
-                locale
-            )?.name?.let { stringResource(it) }
+            // The same helper the voice input action uses, so the name shown
+            // here is always the model that will actually run. That also makes
+            // an assigned Qualcomm model visible (it used to show as "None").
+            val voiceInputSelection = remember(gpuRevision.value, localeString) {
+                ResourceHelper.resolveVoiceInputSelection(context, locale)
+            }
+            val voiceInputModelName = voiceInputSelection.model?.name?.let { stringResource(it) }
             val dictionaryName = runBlocking {
                 ResourceHelper.findKeyForLocaleAndKind(
                     context,
@@ -686,10 +1013,31 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
                     }
                 }
 
+            val voiceInputBackends = remember(voiceInputSelection) {
+                BackendSupport.availableBackends(
+                    context,
+                    voiceInputSelection.ggmlModel != null,
+                    voiceInputSelection.qnnModel != null
+                )
+            }
+            val voiceInputQnnUnavailable = if (voiceInputSelection.qnnModel != null) {
+                BackendSupport.unavailableReason(
+                    context,
+                    Backend.QNN,
+                    hasGgmlModel = voiceInputSelection.ggmlModel != null,
+                    hasQnnModel = true
+                )
+            } else null
+
             val options = LanguageOptions(
                 voiceInputModel = voiceInputModelName,
                 dictionary = dictionaryName,
-                transformerModel = transformerName
+                transformerModel = transformerName,
+                voiceInputBackends = voiceInputBackends,
+                voiceInputBackend = voiceInputSelection.backend,
+                voiceInputHasGgmlModel = voiceInputSelection.ggmlModel != null,
+                voiceInputHasQnnModel = voiceInputSelection.qnnModel != null,
+                voiceInputQnnUnavailable = voiceInputQnnUnavailable
             )
 
 
@@ -740,6 +1088,10 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController()) 
                     }
 
                     multilingualBucket.setValue(newSet)
+                },
+                onVoiceInputBackendSelected = { backend ->
+                    ResourceHelper.setVoiceInputBackend(context, locale, backend)
+                    gpuRevision.value++
                 }
             )
 

@@ -76,7 +76,7 @@ public class DictionaryFacilitatorImpl implements DictionaryFacilitator {
 
     @androidx.annotation.Nullable
     private EmailDictionary mEmailDictionary = null;
-    private List<DictionaryGroup> mDictionaryGroups = new ArrayList<>();
+    private volatile List<DictionaryGroup> mDictionaryGroups = new ArrayList<>();
     private volatile CountDownLatch mLatchForWaitingLoadingMainDictionaries = new CountDownLatch(0);
     // To synchronize assigning mDictionaryGroup to ensure closing dictionaries.
     private final Object mLock = new Object();
@@ -310,14 +310,17 @@ public class DictionaryFacilitatorImpl implements DictionaryFacilitator {
 
     @Override
     public Locale getPrimaryLocale() {
-        if(mDictionaryGroups.isEmpty()) return Locale.ROOT;
-        return mDictionaryGroups.get(0).mLocale;
+        // resetDictionaries() swaps this list on another thread; read it once.
+        final List<DictionaryGroup> groups = mDictionaryGroups;
+        if(groups.isEmpty()) return Locale.ROOT;
+        return groups.get(0).mLocale;
     }
 
     @Override
     public boolean usesContacts() {
-        if(mDictionaryGroups.isEmpty()) return false;
-        return mDictionaryGroups.get(0).getSubDict(Dictionary.TYPE_CONTACTS) != null;
+        final List<DictionaryGroup> groups = mDictionaryGroups;
+        if(groups.isEmpty()) return false;
+        return groups.get(0).getSubDict(Dictionary.TYPE_CONTACTS) != null;
     }
 
     @Override
@@ -475,6 +478,10 @@ public class DictionaryFacilitatorImpl implements DictionaryFacilitator {
                         existingDictionariesToCleanup.get(localeToCleanUp);
                 final DictionaryGroup dictionarySetToCleanup =
                         findDictionaryGroupWithLocale(oldDictionaryGroups, localeToCleanUp);
+                if (dictionarySetToCleanup == null) {
+                    // A concurrent reset already replaced/cleaned this locale's group.
+                    continue;
+                }
                 for (final String dictType : dictTypesToCleanUp) {
                     dictionarySetToCleanup.closeDict(dictType);
                 }

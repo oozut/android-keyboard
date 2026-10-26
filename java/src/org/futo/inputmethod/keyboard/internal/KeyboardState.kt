@@ -108,7 +108,7 @@ data class KeyboardLayoutElement(
                 KeyboardLayoutPage.Base -> KeyboardId.ELEMENT_ALPHABET
                 KeyboardLayoutPage.Shifted -> KeyboardId.ELEMENT_ALPHABET_AUTOMATIC_SHIFTED
                 KeyboardLayoutPage.ManuallyShifted -> KeyboardId.ELEMENT_ALPHABET_MANUAL_SHIFTED
-                KeyboardLayoutPage.ShiftLocked -> KeyboardId.ELEMENT_ALPHABET_SHIFT_LOCK_SHIFTED
+                KeyboardLayoutPage.ShiftLocked -> KeyboardId.ELEMENT_ALPHABET_SHIFT_LOCKED
                 else -> KeyboardId.ELEMENT_ALPHABET
             }
         }
@@ -374,6 +374,18 @@ class KeyboardState(private val switchActions: SwitchActions) {
         shiftTime = null
     }
 
+    /**
+     * Cancel the pending double-tap shift-lock timer.
+     *
+     * The production keyboard relies on the double-tap timeout to distinguish a single shift tap
+     * from a shift-lock gesture. Instrumentation tests drive the state machine directly and must
+     * be able to simulate two independent single taps that happen to run within that timeout.
+     */
+    @VisibleForTesting
+    fun expireDoubleTapTimeout() {
+        onCancelShiftTimer()
+    }
+
     fun onPressKey(code: Int, isSinglePointer: Boolean, autoCapsFlags: Int) {
         if (DEBUG_EVENT) {
             Log.d(
@@ -446,10 +458,10 @@ class KeyboardState(private val switchActions: SwitchActions) {
 
             // Return back to main layout if on symbols, and space or enter was pressed
             Constants.CODE_SPACE, Constants.CODE_ENTER -> {
-                if(symbolKeyState.isReleasing
-                    && currentLayout.page == KeyboardLayoutPage.Base
-                    && currentLayout.kind == KeyboardLayoutKind.Symbols
-                ) {
+                // Space and enter leave the symbols page even when it is shifted. Previously
+                // only the unshifted symbols page was handled, which left the keyboard stuck on
+                // the shifted symbols page after pressing space.
+                if(currentLayout.kind == KeyboardLayoutKind.Symbols) {
                     setAlphabetLayout(autoCapsFlags)
                 }
             }

@@ -11,3 +11,10 @@ key.jks
 java/res/raw/mozc.data
 .cxx
 java/src/org/futo/inputmethod/keyboard/internal/KeyboardTextsTable.java
+# Local pi/agent scratch (logs, env dumps, extensions) — never pushed
+.pi/
+# Voice-input GPU/QNN work: local debug dumps and build artifacts
+br.zip
+.pod-sdk-install.log
+native/jni/src/whisper-gpu/build-ndk/
+native/jni/src/whisper-gpu/gpu-build.log

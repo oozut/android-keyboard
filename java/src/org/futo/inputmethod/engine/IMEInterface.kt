@@ -4,8 +4,11 @@ import androidx.compose.runtime.MutableState
 import org.futo.inputmethod.annotations.UsedForTesting
 import org.futo.inputmethod.event.Event
 import org.futo.inputmethod.latin.common.Constants
+import org.futo.inputmethod.latin.SuggestedWords
 import org.futo.inputmethod.latin.common.InputPointers
 import org.futo.inputmethod.v2keyboard.KeyboardLayoutSetV2
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 data class StateHint(
     /** Makes KeyboardState instantly unshift when any key with code > 0 is pressed on the alphabet layout */
@@ -104,4 +107,18 @@ interface IMEInterface {
 
     @UsedForTesting
     fun recycle() { }
+
+    // Legacy instrumentation-test hooks. Implemented by the IME that owns the
+    // dictionary facilitator (GeneralIME); other engines safely no-op.
+    @UsedForTesting
+    fun getSuggestedWordsForTest(): SuggestedWords? = null
+
+    @UsedForTesting
+    fun waitForLoadingDictionaries(timeout: Long, unit: TimeUnit) { }
+
+    @UsedForTesting
+    fun replaceDictionariesForTest(locale: Locale) { }
+
+    @UsedForTesting
+    fun clearPersonalizedDictionariesForTest() { }
 }

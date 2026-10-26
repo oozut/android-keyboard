@@ -29,13 +29,16 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import org.futo.voiceinput.shared.ggml.GpuUnavailableException
 import org.futo.voiceinput.shared.ggml.InferenceCancelledException
 import org.futo.voiceinput.shared.ggml.InvalidModelException
+import org.futo.voiceinput.shared.ggml.ModelOutOfMemoryException
 import org.futo.voiceinput.shared.types.AudioRecognizerListener
 import org.futo.voiceinput.shared.types.InferenceState
 import org.futo.voiceinput.shared.types.Language
 import org.futo.voiceinput.shared.types.MagnitudeState
 import org.futo.voiceinput.shared.types.ModelInferenceCallback
+import org.futo.voiceinput.shared.types.ModelLoadFailure
 import org.futo.voiceinput.shared.types.ModelLoader
 import org.futo.voiceinput.shared.ui.MicrophoneDeviceState
 import org.futo.voiceinput.shared.whisper.DecodingConfiguration
@@ -515,10 +518,20 @@ class AudioRecognizer(
             withContext(Dispatchers.Default) {
                 try {
                     preloadModels()
+                } catch(_: ModelOutOfMemoryException) {
+                    withContext(Dispatchers.Main) {
+                        reset()
+                        listener.modelLoadingFailed(ModelLoadFailure.OutOfMemory)
+                    }
                 } catch(_: InvalidModelException) {
                     withContext(Dispatchers.Main) {
                         reset()
-                        listener.modelLoadingFailed()
+                        listener.modelLoadingFailed(ModelLoadFailure.Invalid)
+                    }
+                } catch(_: GpuUnavailableException) {
+                    withContext(Dispatchers.Main) {
+                        reset()
+                        listener.modelLoadingFailed(ModelLoadFailure.HardwareUnavailable)
                     }
                 }
             }

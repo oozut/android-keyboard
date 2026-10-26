@@ -1549,9 +1549,16 @@ class UixManager(private val latinIME: LatinIME) {
         isActionsExpanded.value = latinIME.getSettingBlocking(ActionBarExpanded)
 
         latinIME.lifecycleScope.launch(Dispatchers.Main) {
-            WindowInfoTracker.getOrCreate(latinIME).windowLayoutInfo(latinIME).collect {
-                foldingOptions.value = FoldingOptions(it.displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull())
-                latinIME.invalidateKeyboard(true)
+            try {
+                WindowInfoTracker.getOrCreate(latinIME).windowLayoutInfo(latinIME).collect {
+                    foldingOptions.value = FoldingOptions(it.displayFeatures.filterIsInstance<FoldingFeature>().firstOrNull())
+                    latinIME.invalidateKeyboard(true)
+                }
+            } catch (e: IllegalArgumentException) {
+                // WindowInfoTracker requires a UI context (Activity, WindowContext, or a real
+                // InputMethodService attached to a display). ServiceTestCase, and possibly
+                // some embedded IME hosts, provide an IME service without display association.
+                Log.w("UixManager", "Window layout tracking unavailable", e)
             }
         }
 

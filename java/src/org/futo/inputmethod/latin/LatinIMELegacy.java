@@ -490,13 +490,15 @@ public class LatinIMELegacy implements KeyboardActionListener,
         // view is not displayed we have no means of showing suggestions anyway, and if it is then
         // we want to show suggestions anyway.
         final SettingsValues settingsValues = mSettings.getCurrent();
-        if (mInputMethodService.isInputViewShown()) {
-            mImeManager.onUpdateSelection(
-                    oldSelStart, oldSelEnd,
-                    newSelStart, newSelEnd,
-                    composingSpanStart, composingSpanEnd
-            );
-        }
+        // Always forward selection updates. The input view may legitimately be hidden
+        // (for example in instrumentation tests, or while a hardware keyboard is used),
+        // but the input logic still needs to keep its cached cursor and composition in
+        // sync with the editor.
+        mImeManager.onUpdateSelection(
+                oldSelStart, oldSelEnd,
+                newSelStart, newSelEnd,
+                composingSpanStart, composingSpanEnd
+        );
     }
 
     /**
@@ -972,35 +974,26 @@ public class LatinIMELegacy implements KeyboardActionListener,
     @UsedForTesting
     SuggestedWords getSuggestedWordsForTest() {
         // You may not use this method for anything else than debug
-        // TODO: return DebugFlags.DEBUG_ENABLED ? mInputLogic.mSuggestedWords : null;
-        return null;
+        return getActiveIME().getSuggestedWordsForTest();
     }
 
     // DO NOT USE THIS for any other purpose than testing. This is information private to LatinIME.
     @UsedForTesting
     void waitForLoadingDictionaries(final long timeout, final TimeUnit unit)
             throws InterruptedException {
-        // TODO: mDictionaryFacilitator.waitForLoadingDictionariesForTesting(timeout, unit);
+        getActiveIME().waitForLoadingDictionaries(timeout, unit);
     }
 
     // DO NOT USE THIS for any other purpose than testing. This can break the keyboard badly.
     @UsedForTesting
     void replaceDictionariesForTest(final Locale locale) {
-        final ArrayList<Locale> locales = new ArrayList<>();
-        locales.add(locale);
-
-        final SettingsValues settingsValues = mSettings.getCurrent();
-        // TODO: mDictionaryFacilitator.resetDictionaries(mInputMethodService, locales,
-        //    settingsValues.mUseContactsDict, settingsValues.mUsePersonalizedDicts,
-        //    false /* forceReloadMainDictionary */,
-        //    settingsValues.mAccount, "", /* dictionaryNamePrefix */
-        //    this /* DictionaryInitializationListener */);
+        getActiveIME().replaceDictionariesForTest(locale);
     }
 
     // DO NOT USE THIS for any other purpose than testing.
     @UsedForTesting
     void clearPersonalizedDictionariesForTest() {
-        // TODO: mDictionaryFacilitator.clearUserHistoryDictionary(mInputMethodService);
+        getActiveIME().clearPersonalizedDictionariesForTest();
     }
 
     public void dumpDictionaryForDebug(final String dictName) {

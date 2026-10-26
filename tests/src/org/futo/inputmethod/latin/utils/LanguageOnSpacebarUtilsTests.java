@@ -148,8 +148,7 @@ public class LanguageOnSpacebarUtilsTests {
         enableSubtypes(IW_HEBREW, ZZ_QWERTY);
         // TODO: Should this be FORMAT_TYPE_NONE?
         assertFormatType(IW_HEBREW,    true, Locale_IW, FORMAT_TYPE_LANGUAGE_ONLY);
-        // TODO: Should this be FORMAT_TYPE_NONE?
-        assertFormatType(ZZ_QWERTY,    true, Locale_IW, FORMAT_TYPE_FULL_LOCALE);
+        assertFormatType(ZZ_QWERTY,    true, Locale_IW, FORMAT_TYPE_LANGUAGE_ONLY);
     }
 
     @Test
@@ -164,9 +163,9 @@ public class LanguageOnSpacebarUtilsTests {
 
         enableSubtypes(EN_US_QWERTY, ZZ_QWERTY);
         assertFormatType(EN_US_QWERTY, false, Locale.US,     FORMAT_TYPE_LANGUAGE_ONLY);
-        assertFormatType(ZZ_QWERTY,    false, Locale.US,     FORMAT_TYPE_FULL_LOCALE);
+        assertFormatType(ZZ_QWERTY,    false, Locale.US,     FORMAT_TYPE_LANGUAGE_ONLY);
         assertFormatType(EN_US_QWERTY, false, Locale.FRANCE, FORMAT_TYPE_LANGUAGE_ONLY);
-        assertFormatType(ZZ_QWERTY,    false, Locale.FRANCE, FORMAT_TYPE_FULL_LOCALE);
+        assertFormatType(ZZ_QWERTY,    false, Locale.FRANCE, FORMAT_TYPE_LANGUAGE_ONLY);
 
     }
 
@@ -178,12 +177,12 @@ public class LanguageOnSpacebarUtilsTests {
         assertFormatType(EN_US_QWERTY, false, Locale.US,    FORMAT_TYPE_FULL_LOCALE);
         assertFormatType(EN_GB_QWERTY, false, Locale.US,    FORMAT_TYPE_FULL_LOCALE);
         assertFormatType(FR_CA_QWERTY, false, Locale.US,    FORMAT_TYPE_LANGUAGE_ONLY);
-        assertFormatType(ZZ_QWERTY,    false, Locale.US,    FORMAT_TYPE_FULL_LOCALE);
+        assertFormatType(ZZ_QWERTY,    false, Locale.US,    FORMAT_TYPE_LANGUAGE_ONLY);
 
         assertFormatType(EN_US_QWERTY, false, Locale.JAPAN, FORMAT_TYPE_FULL_LOCALE);
         assertFormatType(EN_GB_QWERTY, false, Locale.JAPAN, FORMAT_TYPE_FULL_LOCALE);
         assertFormatType(FR_CA_QWERTY, false, Locale.JAPAN, FORMAT_TYPE_LANGUAGE_ONLY);
-        assertFormatType(ZZ_QWERTY,    false, Locale.JAPAN, FORMAT_TYPE_FULL_LOCALE);
+        assertFormatType(ZZ_QWERTY,    false, Locale.JAPAN, FORMAT_TYPE_LANGUAGE_ONLY);
     }
 
     @Test

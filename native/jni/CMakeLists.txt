@@ -88,3 +88,21 @@ if(NOT EXT_BUILD)
             log
             dl)
 endif()
+
+# ------------------------------------------------------------------
+# GPU (Vulkan) voice-input engine — libvoiceinput_gpu.so
+# ------------------------------------------------------------------
+# Self-contained whisper.cpp v1.9.3 + ggml-vulkan build (see
+# src/whisper-gpu/CMakeLists.txt). Built for arm64-v8a only; every other
+# ABI skips this via the guard at the top of that file. The CPU voice
+# path above is completely untouched.
+add_subdirectory(src/whisper-gpu)
+
+# ------------------------------------------------------------------
+# QNN (Hexagon HTP) voice-input engine — libvoiceinput_qnn.so
+# ------------------------------------------------------------------
+# ORT C API + QNN EP decode loop for Qualcomm AI Hub's precompiled
+# context binaries (Whisper-Large-V3-Turbo-Quantized w8a16). Self-contained;
+# libonnxruntime.so / libQnnHtp.so ship via AARs and are dlopen'd at runtime.
+# Built for arm64-v8a only (guarded inside the subdirectory).
+add_subdirectory(src/qnn-htp)

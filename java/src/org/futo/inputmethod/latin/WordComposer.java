@@ -182,7 +182,14 @@ public final class WordComposer {
         // The retained state of the combiner chain may have changed while processing the event,
         // so we need to update our cache.
         refreshTypedWordCache();
-        mCursorPositionWithinWord = mCodePointSize; // TODO: This wasn't originally here, why not?
+        // Deleting does not move the cursor to the end of the word. Preserve a mid-word
+        // cursor so the backspace handler can delete the character before it. For a delete
+        // at the end of the word, keep the cursor clamped to the (possibly shortened) word.
+        if (Constants.CODE_DELETE != event.mKeyCode) {
+            mCursorPositionWithinWord = mCodePointSize;
+        } else if (mCursorPositionWithinWord > mCodePointSize) {
+            mCursorPositionWithinWord = mCodePointSize;
+        }
         mEvents.add(event);
         return processedEvent;
     }

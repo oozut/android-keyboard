@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import org.futo.voiceinput.shared.ggml.Backend
 import org.futo.voiceinput.shared.ggml.BailLanguageException
 import org.futo.voiceinput.shared.ggml.DecodingMode
 import org.futo.voiceinput.shared.ggml.InferenceCancelledException
@@ -17,7 +18,8 @@ import org.futo.voiceinput.shared.types.toWhisperString
 
 data class MultiModelRunConfiguration(
     val primaryModel: ModelLoader,
-    val languageSpecificModels: Map<Language, ModelLoader>
+    val languageSpecificModels: Map<Language, ModelLoader>,
+    val backend: Backend = Backend.CPU
 )
 
 data class DecodingConfiguration(
@@ -33,13 +35,13 @@ class MultiModelRunner(
         val jobs = mutableListOf<Job>()
 
         jobs.add(launch(Dispatchers.Default) {
-            modelManager.obtainModel(runConfiguration.primaryModel)
+            modelManager.obtainModel(runConfiguration.primaryModel, runConfiguration.backend)
         })
 
         if (runConfiguration.languageSpecificModels.count() < 2) {
             runConfiguration.languageSpecificModels.forEach {
                 jobs.add(launch(Dispatchers.Default) {
-                    modelManager.obtainModel(it.value)
+                    modelManager.obtainModel(it.value, runConfiguration.backend)
                 })
             }
         }
@@ -55,7 +57,7 @@ class MultiModelRunner(
         callback: ModelInferenceCallback
     ): String = coroutineScope {
         callback.updateStatus(InferenceState.LoadingModel)
-        val primaryModel = modelManager.obtainModel(runConfiguration.primaryModel)
+        val primaryModel = modelManager.obtainModel(runConfiguration.primaryModel, runConfiguration.backend)
 
         val allowedLanguages = decodingConfiguration.languages.map { it.toWhisperString() }.toTypedArray()
         val bailLanguages = runConfiguration.languageSpecificModels.filter { it.value != runConfiguration.primaryModel }.keys.map { it.toWhisperString() }.toTypedArray()
@@ -84,7 +86,7 @@ class MultiModelRunner(
             val language = getLanguageFromWhisperString(e.language)
 
             val specificModelLoader = runConfiguration.languageSpecificModels[language]!!
-            val specificModel = modelManager.obtainModel(specificModelLoader)
+            val specificModel = modelManager.obtainModel(specificModelLoader, runConfiguration.backend)
 
             specificModel.infer(
                 samples = samples,

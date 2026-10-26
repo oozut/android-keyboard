@@ -553,17 +553,31 @@ public final class InputLogic {
 
         mConnection.updateICCursor(oldSelStart, newSelStart, oldSelEnd, newSelEnd);
 
-        if (mConnection.isBelatedExpectedUpdate(oldSelStart, newSelStart, oldSelEnd, newSelEnd, composingStart, composingEnd)) {
+        final boolean isBelated = mConnection.isBelatedExpectedUpdate(
+                oldSelStart, newSelStart, oldSelEnd, newSelEnd, composingStart, composingEnd);
+        // A selection update that lands *inside* the composing span is always a real cursor
+        // move, even if our expected selection already matches it (which can happen when the
+        // framework reports the same move twice). Skipping it would leave the composer
+        // believing the cursor is still at the end of the word, so a subsequent backspace
+        // would edit the word instead of cancelling the composition.
+        final boolean movedInsideComposingSpan = composingStart >= 0 && composingEnd > composingStart
+                && newSelStart >= composingStart && newSelStart < composingEnd;
+        if (isBelated && !movedInsideComposingSpan) {
             return false;
         }
+        mConnection.updateExpectedSelectionFromEditor(newSelStart, newSelEnd);
 
         // TODO: the following is probably better done in resetEntireInputState().
         // it should only happen when the cursor moved, and the very purpose of the
         // test below is to narrow down whether this happened or not. Likewise with
         // the call to updateShiftState.
         // We set this to NONE because after a cursor move, we don't want the space
-        // state-related special processing to kick in.
-        mSpaceState = SpaceState.NONE;
+        // state-related special processing to kick in. Selection updates that keep the same
+        // selection are not cursor moves (they also arrive after commits); clearing the state
+        // there would drop a pending phantom space.
+        if (oldSelStart != newSelStart || oldSelEnd != newSelEnd) {
+            mSpaceState = SpaceState.NONE;
+        }
 
         final boolean selectionChangedOrSafeToReset =
                 oldSelStart != newSelStart || oldSelEnd != newSelEnd // selection changed
@@ -656,9 +670,13 @@ public final class InputLogic {
             }
         }
 
-        if(mWordComposer.isComposingWord() && mWordComposer.isCursorFrontOrMiddleOfComposingWord()) {
+        if(mWordComposer.isComposingWord() && mWordComposer.isCursorFrontOrMiddleOfComposingWord()
+                && event.mKeyCode != Constants.CODE_DELETE) {
             // TODO: Double check this isn't causing any new regressions. I believe this is also redundant
-            //  with a lot of subsequent similar checks scattered in various handleXyz functions
+            //  with a lot of subsequent similar checks scattered in various handleXyz functions.
+            // Backspace is handled separately: resetting the composition here would finish it and
+            // move the editor cursor to the end of the word, so the following delete would remove
+            // the wrong character.
             unlearnWord(mWordComposer.getTypedWord(), settingsValues, Constants.EVENT_BACKSPACE);
             resetComposingWord(settingsValues, false);
         }
@@ -1419,6 +1437,25 @@ public final class InputLogic {
             final int currentKeyboardScriptId) {
         mSpaceState = SpaceState.NONE;
         mDeleteCount++;
+
+        if (event.mKeyCode == Constants.CODE_DELETE
+                && mWordComposer.isComposingWord()
+                && mWordComposer.isCursorFrontOrMiddleOfComposingWord()) {
+            // Deleting inside a composing word cancels the composition, but the character to
+            // remove is still the one right before the cursor. Finishing the composition first
+            // moves the editor cursor to the end of the word, so restore it before deleting.
+            unlearnWord(mWordComposer.getTypedWord(), inputTransaction.mSettingsValues,
+                    Constants.EVENT_BACKSPACE);
+            final int selStart = mConnection.getExpectedSelectionStart();
+            final int selEnd = mConnection.getExpectedSelectionEnd();
+            mWordComposer.reset(true);
+            mConnection.finishComposingText();
+            mConnection.setSelection(selStart, selEnd);
+            mConnection.deleteTextBeforeCursor(1);
+            inputTransaction.setRequiresUpdateSuggestions();
+            inputTransaction.requireShiftUpdate(InputTransaction.SHIFT_UPDATE_NOW);
+            return;
+        }
 
         // In many cases after backspace, we need to update the shift state. Normally we need
         // to do this right away to avoid the shift state being out of date in case the user types
@@ -2862,6 +2899,7 @@ public final class InputLogic {
             final int sequenceNumber, final OnGetSuggestedWordsCallback callback) {
         mWordComposer.adviseCapitalizedModeBeforeFetchingSuggestions(
                 getActualCapsMode(settingsValues, keyboardShiftMode));
+        final boolean wasComposingWord = mWordComposer.isComposingWord();
         mSuggest.getSuggestedWords(mWordComposer,
                 getNgramContextFromNthPreviousWordForSuggestion(
                         settingsValues.mSpacingAndPunctuations,
@@ -2875,7 +2913,16 @@ public final class InputLogic {
                     settingsValues.mTransformerPredictionEnabled
                 ),
                 settingsValues.mAutoCorrectionEnabledPerUserSettings,
-                inputStyle, sequenceNumber, callback);
+                inputStyle, sequenceNumber, suggestedWords -> {
+                    // With no word being composed, a separator with no predictions should still
+                    // offer the punctuation strip instead of leaving the bar blank.
+                    if (suggestedWords.isEmpty() && !wasComposingWord) {
+                        callback.onGetSuggestedWords(
+                                settingsValues.mSpacingAndPunctuations.suggestPuncList);
+                    } else {
+                        callback.onGetSuggestedWords(suggestedWords);
+                    }
+                });
     }
 
     /**
